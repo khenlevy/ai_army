@@ -26,22 +26,25 @@ Multi-agent orchestration with CrewAI for GitHub-driven development workflow. Al
 
 ### 1. Install dependencies
 
+With Poetry (recommended):
+
+```bash
+poetry install
+```
+
+Or with pip:
+
 ```bash
 pip install -e .
 ```
 
-Or with uv:
-
-```bash
-uv pip install -e .
-```
-
 ### 2. Environment variables
 
-Copy `.env.example` to `.env` and fill in:
+Copy `.env.example` to `.env` (development) and `.env.production` (release/deploy):
 
 ```bash
 cp .env.example .env
+cp .env.example .env.production
 ```
 
 | Variable | Description |
@@ -61,30 +64,64 @@ Ensure these labels exist in your target repository:
 
 ## Run
 
+### Start script (default: .env)
+
+```bash
+python scripts/start.py                    # dev (.env)
+ENV_FILE=.env.production python scripts/start.py   # prod
+python scripts/start.py --env .env.production product   # run product crew with prod env
+```
+
 ### Scheduler (Product Crew every hour)
 
 ```bash
+poetry run ai-army schedule
+# or (if installed)
 ai-army schedule
-# or
-python -m ai_army schedule
 ```
 
 ### Run crews once
 
 ```bash
 # Product Crew - create/prioritize issues
-ai-army product
+poetry run ai-army product
 
 # Team Lead Crew - break features into sub-tasks
-ai-army team-lead
+poetry run ai-army team-lead
 
 # Development Crew (frontend, backend, or fullstack)
-ai-army dev --type frontend
-ai-army dev --type backend
-ai-army dev --type fullstack
+poetry run ai-army dev --type frontend
+poetry run ai-army dev --type backend
+poetry run ai-army dev --type fullstack
 
 # QA Crew - review and merge PRs
-ai-army qa
+poetry run ai-army qa
+```
+
+### Release
+
+```bash
+# Create git tag for current version (e.g. v0.1.0)
+python scripts/release.py
+```
+
+### Docker
+
+```bash
+# Build image
+docker build -t ai-army:latest .
+
+# Run (pass env at runtime)
+docker run --env-file .env.production ai-army:latest
+```
+
+### Deploy to Digital Ocean
+
+```bash
+# Requires .env.production with DO_DROPLET_HOST, DO_SSH_KEY_PATH, etc.
+poetry run deploy --app-name ai-army
+# or
+python scripts/deploy.py --app-name ai-army
 ```
 
 ## Workflow
@@ -101,7 +138,13 @@ ai-army qa
 ```
 ai_army/
 ├── pyproject.toml
+├── poetry.lock
 ├── .env.example
+├── scripts/
+│   ├── start.py         # Start app (default .env)
+│   ├── release.py       # Create git tag for current version
+│   ├── deploy.py        # Deploy to Digital Ocean droplet
+│   └── deploy/          # Deploy module (release_to_droplet port)
 ├── src/ai_army/
 │   ├── config/
 │   │   ├── settings.py

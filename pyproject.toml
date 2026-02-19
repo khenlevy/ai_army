@@ -5,11 +5,14 @@ description = "AI-Army: Multi-agent orchestration with CrewAI for GitHub-driven 
 readme = "README.md"
 authors = ["AI-Army Contributors"]
 license = "MIT"
-packages = [{ include = "ai_army", from = "src" }]
+packages = [
+  { include = "ai_army", from = "src" },
+  { include = "scripts" }
+]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.14"
-crewai = { extras = ["tools"], version = "0.1.1" }
+crewai = { extras = ["tools"], version = ">=0.80.0" }
 langchain = ">=0.3.0"
 langchain-anthropic = ">=0.2.0"
 PyGithub = ">=2.1.0"
@@ -17,6 +20,9 @@ apscheduler = ">=3.10.0"
 pydantic-settings = ">=2.0.0"
 python-dotenv = ">=1.0.0"
 pyyaml = ">=6.0"
+paramiko = ">=3.0.0"
+requests = ">=2.28.0"
+click = ">=8.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0.0"
@@ -24,6 +30,7 @@ pytest-cov = ">=4.0.0"
 
 [tool.poetry.scripts]
 ai-army = "ai_army.main:main"
+deploy = "scripts.deploy.release_to_droplet:cli"
 
 [build-system]
 requires = ["poetry-core"]

@@ -1,5 +1,7 @@
 """Pydantic settings for AI-Army configuration."""
 
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,7 +9,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=os.getenv("ENV_FILE", ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
