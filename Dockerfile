@@ -15,12 +15,16 @@ RUN poetry config virtualenvs.create false \
 # Copy application source
 COPY src/ ./src/
 
+# Entrypoint: copy .env.production -> .env so app uses prod config when run with --env-file or mount
+COPY scripts/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 # Create non-root user
 RUN adduser --disabled-password --gecos "" appuser \
     && chown -R appuser:appuser /app
 
 USER appuser
 
-# Env vars (ANTHROPIC_API_KEY, GITHUB_TOKEN, etc.) must be passed at runtime
-# e.g. docker run --env-file .env.production ...
+# At runtime: mount .env.production or use --env-file .env.production; entrypoint copies to .env for app
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["ai-army", "schedule"]

@@ -7,12 +7,13 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from ai_army.config import get_github_repos
 from ai_army.scheduler.jobs import run_product_crew_job
 from ai_army.scheduler.token_check import has_available_tokens
+from ai_army.tools.github_tools import check_github_connection_and_log
 
 logger = logging.getLogger(__name__)
 
 
 def _check_startup() -> bool:
-    """Verify API and repos on startup. Returns True if ready."""
+    """Verify API, GitHub, and repos on startup. Returns True if ready."""
     if not has_available_tokens():
         logger.error("Startup failed: API tokens/rate limit - jobs will skip until available")
         return False
@@ -20,7 +21,15 @@ def _check_startup() -> bool:
     if not repos:
         logger.error("Startup failed: no GitHub repos (GITHUB_TOKEN/GITHUB_TARGET_REPO or GITHUB_REPO_N/GITHUB_TOKEN_N)")
         return False
-    logger.info("Startup OK | %d repo(s)", len(repos))
+    # Verify we can connect to GitHub and get each repo
+    results = check_github_connection_and_log(repos)
+    ok = [r.repo for r, success in results if success]
+    failed = [r.repo for r, success in results if not success]
+    if ok:
+        logger.info("GitHub: able to connect and get repos | %s", ", ".join(ok))
+    if failed:
+        logger.warning("GitHub: failed to connect to repo(s) | %s", ", ".join(failed))
+    logger.info("Startup OK | %d repo(s) configured", len(repos))
     return True
 
 

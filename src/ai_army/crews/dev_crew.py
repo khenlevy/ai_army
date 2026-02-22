@@ -10,8 +10,10 @@ from crewai import Agent, Crew, Process, Task
 from crewai import LLM
 
 from ai_army.tools import (
-    CreateBranchTool,
+    CreateLocalBranchTool,
     CreatePullRequestTool,
+    GitCommitTool,
+    GitPushTool,
     ListOpenIssuesTool,
     UpdateIssueTool,
 )
@@ -46,7 +48,9 @@ def _create_dev_agent(agent_key: str, label_filter: str) -> Agent:
         verbose=True,
         tools=[
             ListOpenIssuesTool(),
-            CreateBranchTool(),
+            CreateLocalBranchTool(),
+            GitCommitTool(),
+            GitPushTool(),
             CreatePullRequestTool(),
             UpdateIssueTool(),
         ],
@@ -72,14 +76,14 @@ def create_dev_crew(agent_type: str = "frontend") -> Crew:
     task = Task(
         description=(
             f"List open issues with the '{label_filter}' label that are NOT yet 'in-progress' or 'in-review'. "
-            "Pick one issue to work on. Use Create Branch to create a branch (e.g. feature/issue-N-description). "
-            "Implement the feature (or document the implementation plan if code execution is not available). "
-            "Use Update GitHub Issue to set 'in-progress' on the issue. "
-            "Use Create Pull Request to open a PR, including 'Closes #N' in the body. "
-            "Use Update GitHub Issue to set 'in-review' on the issue. "
+            "Pick one issue to work on. Use Update GitHub Issue to set 'in-progress' on the issue. "
+            "Use Create Local Branch to create a branch in the repo (e.g. feature/issue-N-description). "
+            "Implement the feature (edit files as needed). Use Git Commit to stage and commit your changes, "
+            "then Git Push to push the branch to the remote. Use Create Pull Request to open a PR with the same "
+            "branch name, including 'Closes #N' in the body. Use Update GitHub Issue to set 'in-review' on the issue. "
             "If no implementable issues exist, report that."
         ),
-        expected_output="Summary of work done: branch created, PR opened, issue labels updated.",
+        expected_output="Summary of work done: branch created, changes committed and pushed, PR opened, issue labels updated.",
         agent=agent,
     )
 

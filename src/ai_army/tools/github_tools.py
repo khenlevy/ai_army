@@ -4,6 +4,7 @@ All agents use these tools as the single integration layer for issues, PRs, and 
 Supports multiple repos via repo_config.
 """
 
+import logging
 from typing import Type
 
 from crewai.tools import BaseTool
@@ -12,6 +13,8 @@ from pydantic import BaseModel, Field
 
 from ai_army.config.settings import get_github_repos, settings
 from ai_army.config.settings import GitHubRepoConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _get_repo_from_config(config: GitHubRepoConfig | None = None):
@@ -29,6 +32,48 @@ def _get_repo_from_config(config: GitHubRepoConfig | None = None):
     auth = Auth.Token(c.token)
     client = Github(auth=auth)
     return client.get_repo(c.repo)
+
+
+def get_repo_from_config(config: GitHubRepoConfig | None = None):
+    """Public: get the GitHub repository for the given config (or default)."""
+    return _get_repo_from_config(config)
+
+
+def get_open_issue_count(repo) -> int:
+    """Count open issues only (exclude pull requests)."""
+    issues = list(repo.get_issues(state="open"))
+    return sum(1 for i in issues if not i.pull_request)
+
+
+def get_repo_readme(repo) -> str:
+    """Fetch README content from the repo. Returns empty string if missing or on error."""
+    try:
+        readme = repo.get_readme()
+        return readme.decoded_content.decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def check_github_connection_and_log(repos: list[GitHubRepoConfig] | None = None) -> list[tuple[GitHubRepoConfig, bool]]:
+    """Verify we can connect to GitHub and access each configured repo. Log results.
+
+    Returns list of (repo_config, success). Call at startup or before jobs to confirm connectivity.
+    """
+    if repos is None:
+        repos = get_github_repos()
+    results: list[tuple[GitHubRepoConfig, bool]] = []
+    for cfg in repos:
+        try:
+            client = Github(auth=Auth.Token(cfg.token))
+            repo = client.get_repo(cfg.repo)
+            # Light touch to confirm access (e.g. repo full_name)
+            _ = repo.full_name
+            logger.info("GitHub connected | repo: %s", cfg.repo)
+            results.append((cfg, True))
+        except Exception as e:
+            logger.warning("GitHub connection failed | repo: %s | %s", cfg.repo, e)
+            results.append((cfg, False))
+    return results
 
 
 # --- CreateIssueTool ---

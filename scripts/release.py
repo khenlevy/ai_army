@@ -69,8 +69,11 @@ def main() -> int:
     if args.deploy:
         app_path = os.getenv("RELEASE_APP_PATH", DEFAULT_APP_PATH)
         print(f"\nDeploying to {SSH_HOST}...")
-        # git pull, poetry install (restart handled by your process manager)
-        remote_cmd = f"cd {app_path} && git pull && poetry install --no-interaction"
+        # git pull, poetry install, then copy .env.production -> .env for prod
+        remote_cmd = (
+            f"cd {app_path} && git pull && poetry install --no-interaction "
+            "&& cp .env.production .env"
+        )
         deploy_cmd = ["ssh", SSH_HOST, remote_cmd]
         rc = run(deploy_cmd, dry_run=args.dry_run)
         if rc != 0:

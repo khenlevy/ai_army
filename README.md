@@ -55,6 +55,7 @@ cp .env.example .env.production
 | `GITHUB_REPO_1`, `GITHUB_TOKEN_1` | First repo (multi-repo) |
 | `GITHUB_REPO_2`, `GITHUB_TOKEN_2` | Second repo (multi-repo) |
 | ... | Add more as needed |
+| `LOCAL_REPO_PATH` | Path to a cloned repo for dev crew (branch, commit, push). Remote must be configured. |
 
 ### 3. Create labels in your GitHub repo
 
@@ -64,6 +65,15 @@ Ensure these labels exist in your target repository:
 - `frontend`, `backend`, `fullstack`
 - `in-progress`, `in-review`, `done`
 - `bug`, `feature` (optional)
+
+### 4. Product Crew context (optional but recommended)
+
+The Product Manager and Product Agent are guided by:
+
+- **Project README** – Fetched from the target repo; their work is aligned with it.
+- **Product Overview** and **Product Goal** – Set in `src/ai_army/config/product_context.yaml`. Edit these for your project so prioritization and enrichment match your vision.
+
+**Open issue cap:** No more than 8 open issues are allowed. When the count reaches 8 (from any source), the app logs to the console and the PM is instructed not to create new issues until the count is below the cap.
 
 ## Run
 
@@ -120,15 +130,20 @@ python scripts/release.py --dry-run
 python scripts/release.py --deploy --dry-run
 ```
 
-Set `RELEASE_APP_PATH` to override the app path on the droplet (default: `~/ai_army`).
+Set `RELEASE_APP_PATH` to override the app path on the droplet (default: `~/ai_army`). On deploy, the script copies `.env.production` to `.env` on the droplet so the app uses production config.
 
 ### Docker
+
+The image entrypoint copies `.env.production` to `.env` at container start when present (so the app loads prod config). Provide production env by mounting the file or using `--env-file`:
 
 ```bash
 # Build image
 docker build -t ai-army:latest .
 
-# Run (pass env at runtime)
+# Run: mount .env.production so entrypoint copies it to .env for the app
+docker run -v $(pwd)/.env.production:/app/.env.production ai-army:latest
+
+# Or pass vars directly (no file in container; entrypoint then leaves .env unchanged)
 docker run --env-file .env.production ai-army:latest
 ```
 

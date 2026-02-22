@@ -25,6 +25,7 @@ def run_product_crew_job() -> None:
         return
 
     def _run() -> None:
+        logger.info("GitHub repos for this run: %s", ", ".join(r.repo for r in repos))
         for repo_config in repos:
             try:
                 logger.info("Product Crew starting | repo: %s", repo_config.repo)

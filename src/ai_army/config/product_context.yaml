@@ -1,0 +1,13 @@
+# Product context for Product Manager and Product Agent.
+# Aligns their work with project vision and goals. Edit for your project.
+
+product_overview: |
+  Multi-agent orchestration for GitHub-driven development. Product Crew manages
+  backlog and prioritization; Team Lead breaks down features; Dev and QA crews
+  implement and merge. All work is tracked via GitHub issues and PRs with
+  lifecycle labels.
+
+product_goal: |
+  Keep the backlog focused and actionable: at most 8 open issues, clear
+  priorities, and issues enriched with acceptance criteria so the rest of the
+  pipeline can execute without ambiguity.

@@ -16,7 +16,14 @@ logger = logging.getLogger(__name__)
 
 def run_product_crew():
     """Run Product Crew once (no scheduler)."""
+    from ai_army.config import get_github_repos
     from ai_army.crews.product_crew import ProductCrew
+    from ai_army.tools.github_tools import check_github_connection_and_log
+
+    repos = get_github_repos()
+    if repos:
+        logger.info("GitHub repos: %s", ", ".join(r.repo for r in repos))
+        check_github_connection_and_log(repos)
     logger.info("Starting Product Crew (PM + Product Agent)")
     result = ProductCrew.kickoff()
     logger.info("Product Crew finished")

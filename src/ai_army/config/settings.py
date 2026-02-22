@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # Multi-repo: GITHUB_REPO_1, GITHUB_TOKEN_1, GITHUB_REPO_2, GITHUB_TOKEN_2, ...
     # Loaded dynamically - see get_github_repos()
 
+    # Local clone path for git operations (branch, commit, push). Required for dev crew to commit and push.
+    local_repo_path: str = ""
+
 
 def get_settings() -> Settings:
     """Get application settings."""
