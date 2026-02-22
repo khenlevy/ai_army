@@ -134,11 +134,16 @@ Set `RELEASE_APP_PATH` to override the app path on the droplet (default: `~/ai_a
 
 **Prerequisites (ensured by deploy):** `scripts/setup-droplet.sh` is run automatically on `--deploy`. It installs Docker and clones the repo (using `git remote get-url origin`) if missing. The only manual step is creating `.env.production` on the droplet once (e.g. `~/ai_army/.env.production`) with your production env vars. You can also run the setup script alone: `ssh ai-army-droplet 'RELEASE_APP_PATH=~/ai_army bash -s' < scripts/setup-droplet.sh`.
 
-**After deploy – view logs:**
+**Monitor production logs (SSH + Docker):**
 
 ```bash
-ssh ai-army-droplet 'docker logs -f ai-army'
-# If not root: ssh ai-army-droplet 'sudo docker logs -f ai-army'
+# Stream logs (follow)
+./scripts/logs.sh
+# or directly:
+ssh ai-army-droplet 'sudo docker logs -f ai-army'
+
+# Last N lines then follow
+./scripts/logs.sh --tail 200
 ```
 
 ### Docker

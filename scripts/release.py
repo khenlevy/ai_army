@@ -43,15 +43,33 @@ def run(cmd: list[str], dry_run: bool = False) -> int:
     return subprocess.run(cmd).returncode
 
 
+def tag_exists(tag: str) -> bool:
+    """Return True if the tag already exists locally."""
+    r = subprocess.run(
+        ["git", "rev-parse", "--verify", tag],
+        cwd=REPO_ROOT,
+        capture_output=True,
+    )
+    return r.returncode == 0
+
+
 def get_origin_url() -> str:
-    """Get git remote origin URL for clone on droplet (optional)."""
+    """Get git remote origin URL for clone on droplet. Prefer HTTPS so droplet can clone without SSH keys."""
     r = subprocess.run(
         ["git", "remote", "get-url", "origin"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
     )
-    return r.stdout.strip() if r.returncode == 0 else ""
+    url = r.stdout.strip() if r.returncode == 0 else ""
+    if not url:
+        return ""
+    # Prefer HTTPS for clone on droplet (no SSH key needed)
+    if url.startswith("git@github.com:"):
+        return url.replace("git@github.com:", "https://github.com/", 1)
+    if url.startswith("ssh://git@github.com/"):
+        return url.replace("ssh://git@github.com/", "https://github.com/", 1)
+    return url
 
 
 def ensure_prerequisites(app_path: str, dry_run: bool) -> int:
@@ -84,28 +102,39 @@ def main() -> int:
         help="Deploy to droplet after creating tag",
     )
     parser.add_argument(
+        "--deploy-only",
+        action="store_true",
+        help="Deploy only (skip tag creation). Use when tag already exists.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show commands without executing",
     )
     args = parser.parse_args()
 
-    version = get_current_version()
-    tag = f"v{version}"
+    do_deploy = args.deploy or args.deploy_only
 
-    if args.dry_run:
-        print("Dry run - no changes will be made\n")
+    if not args.deploy_only:
+        version = get_current_version()
+        tag = f"v{version}"
 
-    # 1. Create git tag
-    print(f"Creating tag {tag}...")
-    rc = run(["git", "tag", "-a", tag, "-m", f"Release {tag}"], dry_run=args.dry_run)
-    if rc != 0:
-        return rc
-    if not args.dry_run:
-        print(f"Created tag {tag}")
+        if args.dry_run:
+            print("Dry run - no changes will be made\n")
+
+        # 1. Create git tag (idempotent: skip if already exists)
+        if tag_exists(tag):
+            print(f"Tag {tag} already exists, skipping creation.")
+        else:
+            print(f"Creating tag {tag}...")
+            rc = run(["git", "tag", "-a", tag, "-m", f"Release {tag}"], dry_run=args.dry_run)
+            if rc != 0:
+                return rc
+            if not args.dry_run:
+                print(f"Created tag {tag}")
 
     # 2. Deploy to droplet (optional) – ensure prerequisites, then Docker build & run
-    if args.deploy:
+    if do_deploy:
         app_path = os.getenv("RELEASE_APP_PATH", DEFAULT_APP_PATH)
         print(f"\nEnsuring prerequisites on {SSH_HOST}...")
         rc = ensure_prerequisites(app_path, args.dry_run)
