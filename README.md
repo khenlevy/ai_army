@@ -130,7 +130,16 @@ python scripts/release.py --dry-run
 python scripts/release.py --deploy --dry-run
 ```
 
-Set `RELEASE_APP_PATH` to override the app path on the droplet (default: `~/ai_army`). On deploy, the script copies `.env.production` to `.env` on the droplet so the app uses production config.
+Set `RELEASE_APP_PATH` to override the app path on the droplet (default: `~/ai_army`). Deploy builds and runs the app in Docker; the container mounts `.env.production` from the app dir.
+
+**Prerequisites (ensured by deploy):** `scripts/setup-droplet.sh` is run automatically on `--deploy`. It installs Docker and clones the repo (using `git remote get-url origin`) if missing. The only manual step is creating `.env.production` on the droplet once (e.g. `~/ai_army/.env.production`) with your production env vars. You can also run the setup script alone: `ssh ai-army-droplet 'RELEASE_APP_PATH=~/ai_army bash -s' < scripts/setup-droplet.sh`.
+
+**After deploy – view logs:**
+
+```bash
+ssh ai-army-droplet 'docker logs -f ai-army'
+# If not root: ssh ai-army-droplet 'sudo docker logs -f ai-army'
+```
 
 ### Docker
 
@@ -165,7 +174,8 @@ ai_army/
 ├── .env.example
 ├── scripts/
 │   ├── start.py         # Start app (default .env)
-│   └── release.py       # Create git tag, optionally deploy to ai-army-droplet
+│   ├── release.py       # Create git tag, optionally deploy to ai-army-droplet (Docker)
+│   └── setup-droplet.sh  # One-time: install Docker on droplet, optional clone
 ├── src/ai_army/
 │   ├── config/
 │   │   ├── settings.py
