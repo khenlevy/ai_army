@@ -94,6 +94,20 @@ def ensure_prerequisites(app_path: str, dry_run: bool) -> int:
     return proc.wait()
 
 
+def copy_env_production_to_droplet(app_path: str, dry_run: bool) -> int:
+    """Copy local .env.production to the droplet so deploy has it. Part of release flow."""
+    env_file = REPO_ROOT / ".env.production"
+    if not env_file.is_file():
+        print("Error: .env.production not found in the repo root. Create it (e.g. from .env.example) and run release again.")
+        return 1
+    remote_dest = f"{SSH_HOST}:{app_path}/.env.production"
+    cmd = ["scp", str(env_file), remote_dest]
+    if dry_run:
+        print(f"  [dry-run] copy .env.production to {remote_dest}")
+        return 0
+    return subprocess.run(cmd, cwd=REPO_ROOT).returncode
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Release AI-Army")
     parser.add_argument(
@@ -133,22 +147,26 @@ def main() -> int:
             if not args.dry_run:
                 print(f"Created tag {tag}")
 
-    # 2. Deploy to droplet (optional) – ensure prerequisites, then Docker build & run
+    # 2. Deploy to droplet (optional) – copy env, ensure prerequisites, then Docker build & run
     if do_deploy:
         app_path = os.getenv("RELEASE_APP_PATH", DEFAULT_APP_PATH)
-        print(f"\nEnsuring prerequisites on {SSH_HOST}...")
+        print(f"\nCopying .env.production to {SSH_HOST}...")
+        rc = copy_env_production_to_droplet(app_path, args.dry_run)
+        if rc != 0:
+            return rc
+        print(f"Ensuring prerequisites on {SSH_HOST}...")
         rc = ensure_prerequisites(app_path, args.dry_run)
         if rc != 0:
             return rc
         print(f"Deploying to {SSH_HOST} (Docker)...")
-        # Prerequisites are met; cd app, pull, build, replace container
+        # .env.production is on droplet (copied above); cd app, pull, build, replace container
         remote_cmd = (
             f"cd {app_path} && "
-            "test -f .env.production || (echo 'Missing .env.production on droplet' && exit 1) && "
             "git pull && "
             "sudo docker build -t ai-army:latest . && "
             "sudo docker stop ai-army 2>/dev/null; sudo docker rm ai-army 2>/dev/null; "
             'sudo docker run -d --name ai-army --restart unless-stopped '
+            "--env-file $(pwd)/.env.production "
             "-v $(pwd)/.env.production:/app/.env.production ai-army:latest"
         )
         deploy_cmd = ["ssh", SSH_HOST, remote_cmd]

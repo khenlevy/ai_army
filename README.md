@@ -50,7 +50,7 @@ cp .env.example .env.production
 | Variable | Description |
 |----------|-------------|
 | `ANTHROPIC_API_KEY` | Anthropic API key for Claude (required) |
-| `GITHUB_TOKEN` | GitHub token (single repo) |
+| `GITHUB_TOKEN` | GitHub Personal Access Token (PAT) with `repo` scope – used for API access. In production this is injected into the Docker container via `--env-file .env.production`. |
 | `GITHUB_TARGET_REPO` | Target repo `owner/repo` (single repo) |
 | `GITHUB_REPO_1`, `GITHUB_TOKEN_1` | First repo (multi-repo) |
 | `GITHUB_REPO_2`, `GITHUB_TOKEN_2` | Second repo (multi-repo) |
@@ -130,9 +130,9 @@ python scripts/release.py --dry-run
 python scripts/release.py --deploy --dry-run
 ```
 
-Set `RELEASE_APP_PATH` to override the app path on the droplet (default: `~/ai_army`). Deploy builds and runs the app in Docker; the container mounts `.env.production` from the app dir.
+Set `RELEASE_APP_PATH` to override the app path on the droplet (default: `~/ai_army`). Deploy runs the container with `--env-file .env.production` so all variables (including GitHub PAT) are injected into the container; the file is also mounted for the entrypoint.
 
-**Prerequisites (ensured by deploy):** `scripts/setup-droplet.sh` is run automatically on `--deploy`. It installs Docker and clones the repo (using `git remote get-url origin`) if missing. The only manual step is creating `.env.production` on the droplet once (e.g. `~/ai_army/.env.production`) with your production env vars. You can also run the setup script alone: `ssh ai-army-droplet 'RELEASE_APP_PATH=~/ai_army bash -s' < scripts/setup-droplet.sh`.
+**Fully automated deploy:** On `--deploy`, the release script (1) copies your local `.env.production` from the repo root to the droplet via `scp`, (2) runs `setup-droplet.sh` on the droplet (Docker + clone repo if missing), (3) runs `git pull`, `docker build`, and `docker run`. Have `.env.production` in the repo root (e.g. copy from `.env.example`); no manual steps on the droplet.
 
 **Monitor production logs (SSH + Docker):**
 
