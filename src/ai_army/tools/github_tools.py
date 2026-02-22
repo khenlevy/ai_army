@@ -1,6 +1,7 @@
 """CrewAI tools wrapping PyGithub for GitHub API integration.
 
 All agents use these tools as the single integration layer for issues, PRs, and repo activity.
+Supports multiple repos via repo_config.
 """
 
 from typing import Type
@@ -9,18 +10,25 @@ from crewai.tools import BaseTool
 from github import Auth, Github
 from pydantic import BaseModel, Field
 
-from ai_army.config.settings import settings
+from ai_army.config.settings import get_github_repos, settings
+from ai_army.config.settings import GitHubRepoConfig
 
 
-def _get_github_client() -> Github:
-    """Create authenticated GitHub client."""
-    auth = Auth.Token(settings.github_token)
-    return Github(auth=auth)
-
-
-def _get_repo():
-    """Get the target repository."""
-    return _get_github_client().get_repo(settings.github_target_repo)
+def _get_repo_from_config(config: GitHubRepoConfig | None = None):
+    """Get the target repository. Uses config if provided, else first repo from settings."""
+    if config:
+        auth = Auth.Token(config.token)
+        client = Github(auth=auth)
+        return client.get_repo(config.repo)
+    repos = get_github_repos()
+    if not repos:
+        auth = Auth.Token(settings.github_token)
+        client = Github(auth=auth)
+        return client.get_repo(settings.github_target_repo)
+    c = repos[0]
+    auth = Auth.Token(c.token)
+    client = Github(auth=auth)
+    return client.get_repo(c.repo)
 
 
 # --- CreateIssueTool ---
@@ -44,9 +52,13 @@ class CreateIssueTool(BaseTool):
     )
     args_schema: Type[BaseModel] = CreateIssueInput
 
+    def __init__(self, repo_config: GitHubRepoConfig | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_config = repo_config
+
     def _run(self, title: str, body: str = "", labels: list[str] | None = None) -> str:
         labels = labels or []
-        repo = _get_repo()
+        repo = _get_repo_from_config(self._repo_config)
         issue = repo.create_issue(title=title, body=body, labels=labels)
         return f"Created issue #{issue.number}: {title} (labels: {labels})"
 
@@ -74,6 +86,10 @@ class UpdateIssueTool(BaseTool):
     )
     args_schema: Type[BaseModel] = UpdateIssueInput
 
+    def __init__(self, repo_config: GitHubRepoConfig | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_config = repo_config
+
     def _run(
         self,
         issue_number: int,
@@ -84,7 +100,7 @@ class UpdateIssueTool(BaseTool):
     ) -> str:
         labels_to_add = labels_to_add or []
         labels_to_remove = labels_to_remove or []
-        repo = _get_repo()
+        repo = _get_repo_from_config(self._repo_config)
         issue = repo.get_issue(issue_number)
         actions = []
         if comment:
@@ -125,9 +141,13 @@ class ListOpenIssuesTool(BaseTool):
     )
     args_schema: Type[BaseModel] = ListOpenIssuesInput
 
+    def __init__(self, repo_config: GitHubRepoConfig | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_config = repo_config
+
     def _run(self, labels: list[str] | None = None, limit: int = 50) -> str:
         labels = labels or []
-        repo = _get_repo()
+        repo = _get_repo_from_config(self._repo_config)
         if labels:
             issues = list(repo.get_issues(state="open", labels=labels)[:limit])
         else:
@@ -163,6 +183,10 @@ class CreatePullRequestTool(BaseTool):
     )
     args_schema: Type[BaseModel] = CreatePullRequestInput
 
+    def __init__(self, repo_config: GitHubRepoConfig | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_config = repo_config
+
     def _run(
         self,
         title: str,
@@ -173,7 +197,7 @@ class CreatePullRequestTool(BaseTool):
     ) -> str:
         if issue_number and "Closes #" not in body and "Fixes #" not in body:
             body = f"{body}\n\nCloses #{issue_number}".strip() if body else f"Closes #{issue_number}"
-        repo = _get_repo()
+        repo = _get_repo_from_config(self._repo_config)
         pr = repo.create_pull(title=title, body=body, head=head, base=base)
         return f"Created PR #{pr.number}: {title} ({head} -> {base})"
 
@@ -195,8 +219,12 @@ class ListPullRequestsTool(BaseTool):
     description: str = "List pull requests in the target repository. Use for QA to find PRs to review and merge."
     args_schema: Type[BaseModel] = ListPullRequestsInput
 
+    def __init__(self, repo_config: GitHubRepoConfig | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_config = repo_config
+
     def _run(self, state: str = "open", limit: int = 20) -> str:
-        repo = _get_repo()
+        repo = _get_repo_from_config(self._repo_config)
         prs = list(repo.get_pulls(state=state)[:limit])
         result = []
         for pr in prs:
@@ -225,13 +253,17 @@ class MergePullRequestTool(BaseTool):
     description: str = "Merge a pull request. Use after QA review passes. Supports merge, squash, or rebase."
     args_schema: Type[BaseModel] = MergePullRequestInput
 
+    def __init__(self, repo_config: GitHubRepoConfig | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_config = repo_config
+
     def _run(
         self,
         pr_number: int,
         merge_method: str = "merge",
         commit_message: str = "",
     ) -> str:
-        repo = _get_repo()
+        repo = _get_repo_from_config(self._repo_config)
         pr = repo.get_pull(pr_number)
         pr.merge(merge_method=merge_method, commit_message=commit_message or None)
         return f"Merged PR #{pr_number} using {merge_method}"
@@ -254,9 +286,26 @@ class CreateBranchTool(BaseTool):
     description: str = "Create a new branch from main (or another ref) for development work."
     args_schema: Type[BaseModel] = CreateBranchInput
 
+    def __init__(self, repo_config: GitHubRepoConfig | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_config = repo_config
+
     def _run(self, branch_name: str, from_ref: str = "main") -> str:
-        repo = _get_repo()
+        repo = _get_repo_from_config(self._repo_config)
         branch = repo.get_branch(from_ref)
         sha = branch.commit.sha
         ref = repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
         return f"Created branch '{branch_name}' from {from_ref}"
+
+
+def create_github_tools(repo_config: GitHubRepoConfig | None = None) -> tuple:
+    """Create GitHub tools bound to a specific repo config."""
+    return (
+        CreateIssueTool(repo_config=repo_config),
+        UpdateIssueTool(repo_config=repo_config),
+        ListOpenIssuesTool(repo_config=repo_config),
+        CreatePullRequestTool(repo_config=repo_config),
+        ListPullRequestsTool(repo_config=repo_config),
+        MergePullRequestTool(repo_config=repo_config),
+        CreateBranchTool(repo_config=repo_config),
+    )

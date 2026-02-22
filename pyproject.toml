@@ -12,6 +12,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.14"
+anthropic = ">=0.40.0"
 crewai = { extras = ["tools"], version = ">=0.80.0" }
 langchain = ">=0.3.0"
 langchain-anthropic = ">=0.2.0"

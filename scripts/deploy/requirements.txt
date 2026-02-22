@@ -1,7 +1,0 @@
-# Deploy script dependencies (also in pyproject.toml)
-# Use: pip install -r scripts/deploy/requirements.txt
-# Or: poetry install (includes these)
-paramiko>=3.0.0
-requests>=2.28.0
-click>=8.0.0
-python-dotenv>=1.0.0

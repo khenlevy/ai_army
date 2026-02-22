@@ -1,19 +1,24 @@
 """Product Crew: Product Manager + Product Agent.
 
 Creates and prioritizes GitHub issues with lifecycle labels.
+Supports multiple repos via repo_config.
 """
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
-from crewai import Agent, Crew, Process, Task
-from crewai import LLM
+from crewai import Agent, Crew, LLM, Process, Task
 
 from ai_army.tools import (
     CreateIssueTool,
     ListOpenIssuesTool,
     UpdateIssueTool,
+    create_github_tools,
 )
+
+if TYPE_CHECKING:
+    from ai_army.config.settings import GitHubRepoConfig
 
 
 def _load_agents_config() -> dict:
@@ -31,10 +36,12 @@ def _get_llm() -> LLM:
     )
 
 
-def create_product_crew() -> Crew:
+def create_product_crew(repo_config: "GitHubRepoConfig | None" = None) -> Crew:
     """Create the Product Crew with PM and Product Agent."""
     config = _load_agents_config()
     llm = _get_llm()
+
+    create_issue, update_issue, list_issues, *_ = create_github_tools(repo_config)
 
     pm_config = config["product_manager"]
     pa_config = config["product_agent"]
@@ -45,7 +52,7 @@ def create_product_crew() -> Crew:
         backstory=pm_config["backstory"],
         llm=llm,
         verbose=True,
-        tools=[CreateIssueTool(), UpdateIssueTool(), ListOpenIssuesTool()],
+        tools=[create_issue, update_issue, list_issues],
     )
 
     product_agent = Agent(
@@ -54,7 +61,7 @@ def create_product_crew() -> Crew:
         backstory=pa_config["backstory"],
         llm=llm,
         verbose=True,
-        tools=[UpdateIssueTool(), ListOpenIssuesTool()],
+        tools=[update_issue, list_issues],
     )
 
     pm_task = Task(
@@ -92,7 +99,11 @@ class ProductCrew:
     """Product Crew - runs PM and Product Agent to manage backlog."""
 
     @classmethod
-    def kickoff(cls, inputs: dict | None = None) -> str:
+    def kickoff(
+        cls,
+        inputs: dict | None = None,
+        repo_config: "GitHubRepoConfig | None" = None,
+    ) -> str:
         """Run the Product Crew."""
-        crew = create_product_crew()
+        crew = create_product_crew(repo_config=repo_config)
         return crew.kickoff(inputs=inputs or {})

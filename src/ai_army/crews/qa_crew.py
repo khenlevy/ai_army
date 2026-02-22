@@ -33,12 +33,12 @@ def create_qa_crew() -> Crew:
     config = _load_agents_config()
     llm = _get_llm()
 
-    qa_config = config["qa_agent"]
+    automation_config = config["automation_engineer"]
 
-    qa_agent = Agent(
-        role=qa_config["role"],
-        goal=qa_config["goal"],
-        backstory=qa_config["backstory"],
+    automation_engineer = Agent(
+        role=automation_config["role"],
+        goal=automation_config["goal"],
+        backstory=automation_config["backstory"],
         llm=llm,
         verbose=True,
         tools=[ListPullRequestsTool(), MergePullRequestTool(), UpdateIssueTool()],
@@ -54,11 +54,11 @@ def create_qa_crew() -> Crew:
             "Prefer merging when in doubt - the goal is to keep the pipeline moving."
         ),
         expected_output="Summary of PRs reviewed: merged, or feedback provided.",
-        agent=qa_agent,
+        agent=automation_engineer,
     )
 
     return Crew(
-        agents=[qa_agent],
+        agents=[automation_engineer],
         tasks=[qa_task],
         process=Process.sequential,
         verbose=True,

@@ -1,50 +1,68 @@
 """AI-Army entry point - scheduler and CLI."""
 
 import argparse
+import logging
 import os
 import sys
 
 from dotenv import load_dotenv
 
+from ai_army.logging_config import configure_logging
+
 load_dotenv(os.getenv("ENV_FILE", ".env"))
+
+logger = logging.getLogger(__name__)
 
 
 def run_product_crew():
     """Run Product Crew once (no scheduler)."""
     from ai_army.crews.product_crew import ProductCrew
-    return ProductCrew.kickoff()
+    logger.info("Starting Product Crew (PM + Product Agent)")
+    result = ProductCrew.kickoff()
+    logger.info("Product Crew finished")
+    return result
 
 
 def run_team_lead_crew():
     """Run Team Lead Crew once."""
     from ai_army.crews.team_lead_crew import TeamLeadCrew
-    return TeamLeadCrew.kickoff()
+    logger.info("Starting Team Lead Crew")
+    result = TeamLeadCrew.kickoff()
+    logger.info("Team Lead Crew finished")
+    return result
 
 
 def run_dev_crew(agent_type: str):
     """Run Development Crew once."""
     from ai_army.crews.dev_crew import DevCrew
-    return DevCrew.kickoff(agent_type=agent_type)
+    logger.info("Starting Dev Crew (agent: %s)", agent_type)
+    result = DevCrew.kickoff(agent_type=agent_type)
+    logger.info("Dev Crew finished")
+    return result
 
 
 def run_qa_crew():
     """Run QA Crew once."""
     from ai_army.crews.qa_crew import QACrew
-    return QACrew.kickoff()
+    logger.info("Starting QA Crew")
+    result = QACrew.kickoff()
+    logger.info("QA Crew finished")
+    return result
 
 
 def run_scheduler():
     """Run the hourly scheduler (Product Crew)."""
-    from ai_army.scheduler import start_scheduler
+    configure_logging()
+    from ai_army.scheduler.runner import start_scheduler
     scheduler = start_scheduler()
-    print("Scheduler started. Product Crew will run every hour. Press Ctrl+C to exit.")
+    logger.info("Scheduler running. Product Crew every hour. Ctrl+C to stop.")
     try:
         import time
         while True:
             time.sleep(60)
     except KeyboardInterrupt:
         scheduler.shutdown()
-        print("Scheduler stopped.")
+        logger.info("Scheduler stopped.")
 
 
 def main():
@@ -76,6 +94,8 @@ def main():
     subparsers.add_parser("qa", help="Run QA Crew once")
 
     args = parser.parse_args()
+
+    configure_logging()
 
     if args.command == "schedule" or args.command is None:
         run_scheduler()

@@ -1,5 +1,6 @@
 """AI-Army tools - GitHub integration layer."""
 
+from ai_army.config.settings import GitHubRepoConfig
 from ai_army.tools.github_tools import (
     CreateBranchTool,
     CreateIssueTool,
@@ -8,9 +9,11 @@ from ai_army.tools.github_tools import (
     ListPullRequestsTool,
     MergePullRequestTool,
     UpdateIssueTool,
+    create_github_tools,
 )
 
 __all__ = [
+    "GitHubRepoConfig",
     "CreateIssueTool",
     "UpdateIssueTool",
     "ListOpenIssuesTool",
@@ -18,4 +21,5 @@ __all__ = [
     "ListPullRequestsTool",
     "MergePullRequestTool",
     "CreateBranchTool",
+    "create_github_tools",
 ]

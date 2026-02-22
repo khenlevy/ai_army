@@ -40,7 +40,7 @@ pip install -e .
 
 ### 2. Environment variables
 
-Copy `.env.example` to `.env` (development) and `.env.production` (release/deploy):
+Copy `.env.example` to `.env` (development) and `.env.production` (production):
 
 ```bash
 cp .env.example .env
@@ -50,8 +50,11 @@ cp .env.example .env.production
 | Variable | Description |
 |----------|-------------|
 | `ANTHROPIC_API_KEY` | Anthropic API key for Claude (required) |
-| `GITHUB_TOKEN` | GitHub Personal Access Token (repo, issues, pull_requests scopes) |
-| `GITHUB_TARGET_REPO` | Target repo in `owner/repo` format |
+| `GITHUB_TOKEN` | GitHub token (single repo) |
+| `GITHUB_TARGET_REPO` | Target repo `owner/repo` (single repo) |
+| `GITHUB_REPO_1`, `GITHUB_TOKEN_1` | First repo (multi-repo) |
+| `GITHUB_REPO_2`, `GITHUB_TOKEN_2` | Second repo (multi-repo) |
+| ... | Add more as needed |
 
 ### 3. Create labels in your GitHub repo
 
@@ -73,6 +76,11 @@ python scripts/start.py --env .env.production product   # run product crew with 
 ```
 
 ### Scheduler (Product Crew every hour)
+
+Runs Product Crew for each configured repo. Skips when API rate limit (429) is reached.
+
+- **Startup check**: Verifies API capacity and repo config before starting
+- **Per-run check**: Before each job, checks API availability; skips silently if limit reached
 
 ```bash
 poetry run ai-army schedule
@@ -103,7 +111,16 @@ poetry run ai-army qa
 ```bash
 # Create git tag for current version (e.g. v0.1.0)
 python scripts/release.py
+
+# Create tag and deploy to droplet (ssh ai-army-droplet)
+python scripts/release.py --deploy
+
+# Dry run - show commands without executing
+python scripts/release.py --dry-run
+python scripts/release.py --deploy --dry-run
 ```
+
+Set `RELEASE_APP_PATH` to override the app path on the droplet (default: `~/ai_army`).
 
 ### Docker
 
@@ -113,15 +130,6 @@ docker build -t ai-army:latest .
 
 # Run (pass env at runtime)
 docker run --env-file .env.production ai-army:latest
-```
-
-### Deploy to Digital Ocean
-
-```bash
-# Requires .env.production with DO_DROPLET_HOST, DO_SSH_KEY_PATH, etc.
-poetry run deploy --app-name ai-army
-# or
-python scripts/deploy.py --app-name ai-army
 ```
 
 ## Workflow
@@ -142,9 +150,7 @@ ai_army/
 ├── .env.example
 ├── scripts/
 │   ├── start.py         # Start app (default .env)
-│   ├── release.py       # Create git tag for current version
-│   ├── deploy.py        # Deploy to Digital Ocean droplet
-│   └── deploy/          # Deploy module (release_to_droplet port)
+│   └── release.py       # Create git tag, optionally deploy to ai-army-droplet
 ├── src/ai_army/
 │   ├── config/
 │   │   ├── settings.py
@@ -156,7 +162,10 @@ ai_army/
 │   │   └── qa_crew.py
 │   ├── tools/
 │   │   └── github_tools.py
-│   ├── scheduler.py
+│   ├── scheduler/
+│   │   ├── runner.py      # APScheduler setup
+│   │   ├── jobs.py        # Product Crew job
+│   │   └── token_check.py # API availability check
 │   └── main.py
 └── tests/
 ```
