@@ -55,7 +55,7 @@ def _load_product_context() -> dict[str, str]:
 def _get_llm() -> LLM:
     """Get Anthropic Claude LLM."""
     return LLM(
-        model="anthropic/claude-3-5-sonnet-20241022",
+        model="anthropic/claude-sonnet-4-6",
         temperature=0.3,
     )
 

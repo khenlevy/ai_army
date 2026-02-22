@@ -25,13 +25,13 @@ def has_available_tokens() -> bool:
         # Prefer count_tokens - zero cost, verifies API is reachable
         if hasattr(client.messages, "count_tokens"):
             client.messages.count_tokens(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-6",
                 messages=[{"role": "user", "content": "Hi"}],
             )
         else:
             # Fallback: minimal completion
             client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-6",
                 max_tokens=1,
                 messages=[{"role": "user", "content": "Hi"}],
             )

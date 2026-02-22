@@ -174,7 +174,12 @@ def main() -> int:
         if rc != 0:
             return rc
         if not args.dry_run:
-            print(f"Deployed to {SSH_HOST}. View logs: ssh {SSH_HOST} 'sudo docker logs -f ai-army'")
+            print(f"Deployed to {SSH_HOST}. Agents (scheduler) starting...")
+            import time
+            time.sleep(5)
+            print("\n--- Recent logs (monitor with: ./scripts/logs.sh or ssh ai-army-droplet 'sudo docker logs -f ai-army') ---\n")
+            run(["ssh", SSH_HOST, "sudo docker logs ai-army --tail 50"], dry_run=False)
+            print("\n---")
 
     return 0
 
