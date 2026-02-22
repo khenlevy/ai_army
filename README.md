@@ -59,7 +59,7 @@ cp .env.example .env.production
 
 ### 3. Create labels in your GitHub repo
 
-Ensure these labels exist in your target repository:
+**Required for issue creation.** If these labels don’t exist in the target repo, the Product Crew cannot create or label issues (GitHub API returns 422). Create them in each repo you use (e.g. `GITHUB_TARGET_REPO`):
 
 - `backlog`, `prioritized`, `ready-for-breakdown`, `broken-down`
 - `frontend`, `backend`, `fullstack`

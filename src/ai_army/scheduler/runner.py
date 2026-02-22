@@ -1,6 +1,7 @@
 """Scheduler runner - hourly Product Crew with startup check."""
 
 import logging
+from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -44,6 +45,13 @@ def create_scheduler() -> BackgroundScheduler:
         hour="*",  # Every hour
         id="product_crew",
     )
+    # Run Product Crew once at startup (as if schedule just arrived)
+    scheduler.add_job(
+        run_product_crew_job,
+        trigger="date",
+        run_date=datetime.now(timezone.utc),
+        id="product_crew_startup",
+    )
     set_scheduler(scheduler)
     return scheduler
 
@@ -56,4 +64,5 @@ def start_scheduler() -> BackgroundScheduler:
     job = scheduler.get_job("product_crew")
     if job and job.next_run_time:
         logger.info("Next run: %s", job.next_run_time.strftime("%Y-%m-%d %H:%M"))
+    logger.info("Product Crew will run once at startup, then every hour.")
     return scheduler
