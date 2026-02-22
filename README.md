@@ -55,7 +55,8 @@ cp .env.example .env.production
 | `GITHUB_REPO_1`, `GITHUB_TOKEN_1` | First repo (multi-repo) |
 | `GITHUB_REPO_2`, `GITHUB_TOKEN_2` | Second repo (multi-repo) |
 | ... | Add more as needed |
-| `LOCAL_REPO_PATH` | Path to a cloned repo for dev crew (branch, commit, push). Remote must be configured. |
+| `REPO_WORKSPACE` | Directory where dev crew clones target repos (default: `.ai_army_workspace` in cwd). Each repo is cloned as `owner_repo`. |
+| `LOCAL_REPO_PATH` | Optional override: path to a pre-cloned repo for git operations. If unset, dev crew clones the target repo into `REPO_WORKSPACE` and works there. |
 
 ### 3. Create labels in your GitHub repo
 

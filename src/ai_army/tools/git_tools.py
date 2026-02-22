@@ -61,8 +61,12 @@ class CreateLocalBranchTool(BaseTool):
     )
     args_schema: Type[BaseModel] = CreateLocalBranchInput
 
+    def __init__(self, repo_path: str | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_path_override = repo_path
+
     def _run(self, branch_name: str, from_ref: str = "main") -> str:
-        repo = _repo_path()
+        repo = _repo_path(self._repo_path_override)
         if not repo:
             return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
         out = _run_git(repo, "checkout", "-b", branch_name, from_ref)
@@ -94,8 +98,12 @@ class GitCommitTool(BaseTool):
     )
     args_schema: Type[BaseModel] = GitCommitInput
 
+    def __init__(self, repo_path: str | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_path_override = repo_path
+
     def _run(self, message: str, paths: str = ".") -> str:
-        repo = _repo_path()
+        repo = _repo_path(self._repo_path_override)
         if not repo:
             return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
         add_args = paths.split() if paths.strip() != "." else ["."]
@@ -129,8 +137,12 @@ class GitPushTool(BaseTool):
     )
     args_schema: Type[BaseModel] = GitPushInput
 
+    def __init__(self, repo_path: str | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_path_override = repo_path
+
     def _run(self, branch: str = "", remote: str = "origin") -> str:
-        repo = _repo_path()
+        repo = _repo_path(self._repo_path_override)
         if not repo:
             return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
         if branch.strip():

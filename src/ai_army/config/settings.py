@@ -34,8 +34,11 @@ class Settings(BaseSettings):
     # Multi-repo: GITHUB_REPO_1, GITHUB_TOKEN_1, GITHUB_REPO_2, GITHUB_TOKEN_2, ...
     # Loaded dynamically - see get_github_repos()
 
-    # Local clone path for git operations (branch, commit, push). Required for dev crew to commit and push.
+    # Local clone path for git operations (override when dev crew clones automatically).
     local_repo_path: str = ""
+
+    # Directory where dev crew clones target repos (GITHUB_TARGET_REPO / GITHUB_REPO_N). Default: .ai_army_workspace in cwd.
+    repo_workspace: str = ""
 
 
 def get_settings() -> Settings:
