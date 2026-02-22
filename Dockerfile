@@ -5,15 +5,15 @@ WORKDIR /app
 # Install poetry
 RUN pip install --no-cache-dir poetry
 
-# Copy dependency files
+# Copy dependency files and project files needed for install (readme, scripts, src)
 COPY pyproject.toml poetry.lock ./
+COPY README.md ./
+COPY scripts/ ./scripts/
+COPY src/ ./src/
 
-# Install dependencies (no dev group)
+# Install dependencies and the project (no dev group)
 RUN poetry config virtualenvs.create false \
     && poetry install --without dev --no-interaction --no-ansi
-
-# Copy application source
-COPY src/ ./src/
 
 # Entrypoint: copy .env.production -> .env so app uses prod config when run with --env-file or mount
 COPY scripts/docker-entrypoint.sh /docker-entrypoint.sh
