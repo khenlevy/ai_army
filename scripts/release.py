@@ -106,6 +106,7 @@ def main() -> int:
     remote_cmd = (
         f"cd {app_path} && "
         "git pull && "
+        "sudo docker builder prune -af 2>/dev/null || true && "
         "sudo docker build -t ai-army:latest . && "
         "(sudo docker stop ai-army 2>/dev/null || true) && "
         "(sudo docker rm ai-army 2>/dev/null || true) && "
