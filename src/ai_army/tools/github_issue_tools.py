@@ -397,10 +397,8 @@ class ListOpenIssuesTool(BaseTool):
         try:
             labels = labels or []
             repo = _get_repo_from_config(self._repo_config)
-            if labels:
-                issues = list(repo.get_issues(state="open", labels=labels)[:limit])
-            else:
-                issues = list(repo.get_issues(state="open")[:limit])
+            raw = repo.get_issues(state="open", labels=labels) if labels else repo.get_issues(state="open")
+            issues = list(raw)[:limit]
             result = []
             for i in issues:
                 if i.pull_request:
