@@ -106,10 +106,12 @@ def main() -> int:
     remote_cmd = (
         f"cd {app_path} && "
         "git pull && "
-        "sudo docker builder prune -af 2>/dev/null || true && "
-        "sudo docker build -t ai-army:latest . && "
+        "bash scripts/pre-deploy-cleanup.sh && "
         "(sudo docker stop ai-army 2>/dev/null || true) && "
         "(sudo docker rm ai-army 2>/dev/null || true) && "
+        "sudo docker rmi ai-army:latest 2>/dev/null || true && "
+        "sudo docker builder prune -af 2>/dev/null || true && "
+        "sudo docker build -t ai-army:latest . && "
         'sudo docker run -d --name ai-army --restart unless-stopped '
         "--env-file .env.production "
         "-v $(pwd)/.env.production:/app/.env.production ai-army:latest"
