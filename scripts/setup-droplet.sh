@@ -10,6 +10,19 @@ set -e
 APP_PATH="${RELEASE_APP_PATH:-$HOME/ai_army}"
 GIT_REPO_URL="${GIT_REPO_URL:-}"  # e.g. https://github.com/owner/ai_army.git
 
+# --- Swap (avoid OOM during Docker build) ---
+if [ "$(sudo swapon --show | wc -l)" -eq 0 ]; then
+  echo "=== Creating 2GB swap file ==="
+  sudo fallocate -l 2G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab
+  echo "Swap enabled"
+else
+  echo "Swap already active"
+fi
+
 # --- Prerequisites: Docker ---
 echo "=== Ensuring Docker (prerequisite) ==="
 if command -v docker &>/dev/null; then
