@@ -4,6 +4,7 @@ Pick up broken-down sub-tasks, implement, and submit PRs.
 Clones the target repo (GITHUB_TARGET_REPO / GITHUB_REPO_N) into the workspace and works there.
 """
 
+import logging
 from pathlib import Path
 
 import yaml
@@ -18,9 +19,16 @@ from ai_army.tools import (
     CreatePullRequestTool,
     GitCommitTool,
     GitPushTool,
+    ListDirTool,
     ListOpenIssuesTool,
+    ReadFileTool,
+    RepoStructureTool,
+    SearchCodebaseTool,
     UpdateIssueTool,
+    WriteFileTool,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _load_agents_config() -> dict:
@@ -61,6 +69,11 @@ def _create_dev_agent(
         llm=llm,
         verbose=True,
         tools=[
+            RepoStructureTool(repo_path=repo_path),
+            ListDirTool(repo_path=repo_path),
+            ReadFileTool(repo_path=repo_path),
+            SearchCodebaseTool(repo_path=repo_path, repo_config=repo_config),
+            WriteFileTool(repo_path=repo_path),
             ListOpenIssuesTool(repo_config=repo_config),
             CreateLocalBranchTool(repo_path=repo_path),
             GitCommitTool(repo_path=repo_path),
@@ -71,7 +84,7 @@ def _create_dev_agent(
     )
 
 
-def create_dev_crew(agent_type: str = "frontend") -> Crew:
+def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Crew:
     """Create the Development Crew for a specific agent type.
 
     Clones the target repo (from GITHUB_TARGET_REPO or first GITHUB_REPO_N) into
@@ -95,8 +108,13 @@ def create_dev_crew(agent_type: str = "frontend") -> Crew:
     if repos:
         repo_config = repos[0]
         clone_path = ensure_repo_cloned(repo_config)
+        if not clone_path:
+            logger.warning("Dev Crew: repo clone failed for %s", repo_config.repo)
+    else:
+        logger.warning("Dev Crew: no GitHub repos configured")
     repo_path_str = str(clone_path) if clone_path else None
 
+    logger.debug("create_dev_crew: agent_type=%s, repo_path=%s", agent_type, repo_path_str or "none")
     agent = _create_dev_agent(
         agent_key,
         label_filter,
@@ -104,23 +122,42 @@ def create_dev_crew(agent_type: str = "frontend") -> Crew:
         repo_config=repo_config,
     )
 
-    task = Task(
+    crew_context_block = (
+        f"\n\n--- Context from previous crews ---\n{crew_context}\n---\n\n"
+        if crew_context.strip()
+        else "\n\n"
+    )
+
+    # ReAct-style: Think task first - plan before acting
+    think_task = Task(
         description=(
-            f"List open issues with the '{label_filter}' label that are NOT yet 'in-progress' or 'in-review'. "
-            "Pick one issue to work on. Use Update GitHub Issue to set 'in-progress' on the issue. "
-            "Use Create Local Branch to create a branch in the repo (e.g. feature/issue-N-description). "
-            "Implement the feature (edit files as needed). Use Git Commit to stage and commit your changes, "
-            "then Git Push to push the branch to the remote. Use Create Pull Request to open a PR with the same "
-            "branch name, including 'Closes #N' in the body. Use Update GitHub Issue to set 'in-review' on the issue. "
-            "If no implementable issues exist, report that."
+            crew_context_block
+            + f"Use List Open GitHub Issues to find issues with the '{label_filter}' label that are NOT 'in-progress' or 'in-review'. "
+            "Pick one issue to work on. Analyze it and output your implementation plan: "
+            "(1) Search query you will use to find relevant code, (2) Files/directories you expect to explore, "
+            "(3) Changes you plan to make, (4) Branch name (e.g. feature/issue-N-description), (5) Commit strategy. "
+            "Do NOT create a branch, search, read, or edit files yet. Only list issues and output the plan."
         ),
-        expected_output="Summary of work done: branch created, changes committed and pushed, PR opened, issue labels updated.",
+        expected_output="A structured plan: search query, expected files to explore, planned changes, branch name, and commit strategy.",
         agent=agent,
+    )
+
+    impl_task = Task(
+        description=(
+            "Execute the plan you created. Use Update GitHub Issue to set 'in-progress' on the chosen issue. "
+            "Use Create Local Branch to create the branch. Use Search Codebase with your planned query (or issue number) "
+            "to find relevant code. Use Repo Structure and List Directory to explore. Use Read File and Write File "
+            "to implement. Make multiple Git Commits as you go. When done: Git Push, Create Pull Request with 'Closes #N', "
+            "and Update GitHub Issue to set 'in-review'. If no implementable issues exist, report that."
+        ),
+        expected_output="Summary: repo explored, implementation done (with file edits and one or more commits), branch pushed, PR opened, issue set to in-review.",
+        agent=agent,
+        context=[think_task],
     )
 
     return Crew(
         agents=[agent],
-        tasks=[task],
+        tasks=[think_task, impl_task],
         process=Process.sequential,
         verbose=True,
     )
@@ -130,7 +167,14 @@ class DevCrew:
     """Development Crew - Front-end, Server-side, or Full-stack agents."""
 
     @classmethod
-    def kickoff(cls, agent_type: str = "frontend", inputs: dict | None = None) -> str:
+    def kickoff(
+        cls,
+        agent_type: str = "frontend",
+        inputs: dict | None = None,
+        crew_context: str = "",
+    ) -> str:
         """Run the Development Crew for the given agent type."""
-        crew = create_dev_crew(agent_type=agent_type)
-        return crew.kickoff(inputs=inputs or {})
+        crew = create_dev_crew(agent_type=agent_type, crew_context=crew_context)
+        result = crew.kickoff(inputs=inputs or {})
+        logger.info("DevCrew: kickoff completed")
+        return result

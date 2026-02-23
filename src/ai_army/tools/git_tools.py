@@ -3,6 +3,7 @@
 Agents use these when working in a cloned repo configured via LOCAL_REPO_PATH.
 """
 
+import logging
 import subprocess
 from pathlib import Path
 from typing import Type
@@ -11,6 +12,8 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from ai_army.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _repo_path(override: str | None = None) -> Path | None:
@@ -37,6 +40,7 @@ def _run_git(repo_path: Path, *args: str) -> str:
     err = (result.stderr or "").strip()
     combined = "\n".join(filter(None, [out, err]))
     if result.returncode != 0:
+        logger.warning("git %s failed (exit %s): %s", " ".join(args[:3]), result.returncode, combined[:200])
         return f"git exited {result.returncode}: {combined}"
     return combined or "ok"
 
@@ -68,10 +72,12 @@ class CreateLocalBranchTool(BaseTool):
     def _run(self, branch_name: str, from_ref: str = "main") -> str:
         repo = _repo_path(self._repo_path_override)
         if not repo:
+            logger.warning("CreateLocalBranchTool: local repo not configured")
             return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
         out = _run_git(repo, "checkout", "-b", branch_name, from_ref)
         if "exited" in out:
             return out
+        logger.info("CreateLocalBranchTool: created and checked out branch '%s' from %s", branch_name, from_ref)
         return f"Created and checked out branch '{branch_name}' from {from_ref}"
 
 
@@ -105,12 +111,14 @@ class GitCommitTool(BaseTool):
     def _run(self, message: str, paths: str = ".") -> str:
         repo = _repo_path(self._repo_path_override)
         if not repo:
+            logger.warning("GitCommitTool: local repo not configured")
             return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
         add_args = paths.split() if paths.strip() != "." else ["."]
         _run_git(repo, "add", *add_args)
         out = _run_git(repo, "commit", "-m", message)
         if "exited" in out:
             return out
+        logger.info("GitCommitTool: committed: %s", message[:80])
         return f"Committed: {message}"
 
 
@@ -144,6 +152,7 @@ class GitPushTool(BaseTool):
     def _run(self, branch: str = "", remote: str = "origin") -> str:
         repo = _repo_path(self._repo_path_override)
         if not repo:
+            logger.warning("GitPushTool: local repo not configured")
             return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
         if branch.strip():
             refspec = branch
@@ -155,4 +164,5 @@ class GitPushTool(BaseTool):
         out = _run_git(repo, "push", remote, refspec)
         if "exited" in out:
             return out
+        logger.info("GitPushTool: pushed %s to %s", refspec, remote)
         return f"Pushed {refspec} to {remote}"

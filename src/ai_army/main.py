@@ -18,42 +18,75 @@ def run_product_crew():
     """Run Product Crew once (no scheduler)."""
     from ai_army.config import get_github_repos
     from ai_army.crews.product_crew import ProductCrew
+    from ai_army.memory.context_store import get_context_store
     from ai_army.tools.github_tools import check_github_connection_and_log
 
     repos = get_github_repos()
-    if repos:
+    if not repos:
+        logger.warning("Product Crew: no GitHub repos configured")
+    else:
         logger.info("GitHub repos: %s", ", ".join(r.repo for r in repos))
         check_github_connection_and_log(repos)
+    store = get_context_store()
+    store.load()
+    crew_context = store.get_summary(exclude="product")
+    if crew_context:
+        logger.info("Product Crew: using context from previous crews (%d chars)", len(crew_context))
     logger.info("Starting Product Crew (PM + Product Agent)")
-    result = ProductCrew.kickoff()
-    logger.info("Product Crew finished")
+    result = ProductCrew.kickoff(crew_context=crew_context)
+    store.add("product", result)
+    logger.info("Product Crew finished (result len=%d)", len(str(result)))
     return result
 
 
 def run_team_lead_crew():
     """Run Team Lead Crew once."""
     from ai_army.crews.team_lead_crew import TeamLeadCrew
+    from ai_army.memory.context_store import get_context_store
+
+    store = get_context_store()
+    store.load()
+    crew_context = store.get_summary(exclude="team_lead")
+    if crew_context:
+        logger.info("Team Lead Crew: using context from previous crews (%d chars)", len(crew_context))
     logger.info("Starting Team Lead Crew")
-    result = TeamLeadCrew.kickoff()
-    logger.info("Team Lead Crew finished")
+    result = TeamLeadCrew.kickoff(crew_context=crew_context)
+    store.add("team_lead", result)
+    logger.info("Team Lead Crew finished (result len=%d)", len(str(result)))
     return result
 
 
 def run_dev_crew(agent_type: str):
     """Run Development Crew once."""
     from ai_army.crews.dev_crew import DevCrew
+    from ai_army.memory.context_store import get_context_store
+
+    store = get_context_store()
+    store.load()
+    crew_context = store.get_summary(exclude="dev")
+    if crew_context:
+        logger.info("Dev Crew: using context from previous crews (%d chars)", len(crew_context))
     logger.info("Starting Dev Crew (agent: %s)", agent_type)
-    result = DevCrew.kickoff(agent_type=agent_type)
-    logger.info("Dev Crew finished")
+    result = DevCrew.kickoff(agent_type=agent_type, crew_context=crew_context)
+    store.add("dev", result)
+    logger.info("Dev Crew finished (result len=%d)", len(str(result)))
     return result
 
 
 def run_qa_crew():
     """Run QA Crew once."""
     from ai_army.crews.qa_crew import QACrew
+    from ai_army.memory.context_store import get_context_store
+
+    store = get_context_store()
+    store.load()
+    crew_context = store.get_summary(exclude="qa")
+    if crew_context:
+        logger.info("QA Crew: using context from previous crews (%d chars)", len(crew_context))
     logger.info("Starting QA Crew")
-    result = QACrew.kickoff()
-    logger.info("QA Crew finished")
+    result = QACrew.kickoff(crew_context=crew_context)
+    store.add("qa", result)
+    logger.info("QA Crew finished (result len=%d)", len(str(result)))
     return result
 
 
@@ -105,6 +138,7 @@ def main():
     configure_logging()
 
     if args.command == "schedule" or args.command is None:
+        logger.info("Running scheduler (default command)")
         run_scheduler()
     elif args.command == "product":
         result = run_product_crew()
@@ -119,6 +153,7 @@ def main():
         result = run_qa_crew()
         print(result)
     else:
+        logger.debug("No command specified, showing help")
         parser.print_help()
         sys.exit(1)
 

@@ -34,6 +34,7 @@ def ensure_repo_cloned(repo_config: GitHubRepoConfig | None = None) -> Path | No
     if repo_config is None:
         repos = get_github_repos()
         if not repos:
+            logger.warning("ensure_repo_cloned: no GitHub repos configured")
             return None
         repo_config = repos[0]
 
@@ -43,7 +44,7 @@ def ensure_repo_cloned(repo_config: GitHubRepoConfig | None = None) -> Path | No
     clone_path = workspace / slug
 
     if (clone_path / ".git").exists():
-        logger.info("Repo already cloned at %s, pulling latest.", clone_path)
+        logger.info("Repo already cloned at %s, pulling latest", clone_path)
         r = subprocess.run(
             ["git", "pull", "--rebase"],
             cwd=clone_path,
@@ -53,6 +54,8 @@ def ensure_repo_cloned(repo_config: GitHubRepoConfig | None = None) -> Path | No
         )
         if r.returncode != 0:
             logger.warning("git pull failed in %s: %s", clone_path, r.stderr)
+        else:
+            logger.info("ensure_repo_cloned: pulled latest at %s", clone_path)
         return clone_path
 
     url = _clone_url_with_auth(repo_config)
@@ -66,4 +69,5 @@ def ensure_repo_cloned(repo_config: GitHubRepoConfig | None = None) -> Path | No
     if r.returncode != 0:
         logger.error("git clone failed: %s", r.stderr)
         return None
+    logger.info("ensure_repo_cloned: successfully cloned %s to %s", repo_config.repo, clone_path)
     return clone_path

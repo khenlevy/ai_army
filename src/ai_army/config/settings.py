@@ -1,10 +1,13 @@
 """Pydantic settings for AI-Army configuration."""
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Iterator
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -77,5 +80,10 @@ def get_github_repos() -> list[GitHubRepoConfig]:
                 repo=settings.github_target_repo,
             )
         )
+        logger.debug("get_github_repos: using single repo config (GITHUB_TARGET_REPO)")
+    elif configs:
+        logger.debug("get_github_repos: loaded %d repo(s) from env", len(configs))
+    else:
+        logger.warning("get_github_repos: no repos configured")
 
     return configs

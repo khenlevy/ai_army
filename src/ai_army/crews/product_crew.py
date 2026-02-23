@@ -13,7 +13,8 @@ import yaml
 from crewai import Agent, Crew, LLM, Process, Task
 
 from ai_army.tools import (
-    CreateIssueTool,
+    CreateStructuredIssueTool,
+    EnrichIssueTool,
     ListOpenIssuesTool,
     UpdateIssueTool,
     create_github_tools,
@@ -80,6 +81,7 @@ def _build_product_context(
 def create_product_crew(
     repo_config: "GitHubRepoConfig | None" = None,
     product_context: dict[str, Any] | None = None,
+    crew_context: str = "",
 ) -> Crew:
     """Create the Product Crew with PM and Product Agent.
 
@@ -88,8 +90,17 @@ def create_product_crew(
     config = _load_agents_config()
     llm = _get_llm()
     ctx = product_context or _build_product_context(repo_config)
+    logger.debug("create_product_crew: building crew (open_issues=%s)", ctx.get("open_issue_count", 0))
 
-    create_issue, update_issue, list_issues, *_ = create_github_tools(repo_config)
+    _, update_issue, list_issues, *_ = create_github_tools(repo_config)
+    create_structured = CreateStructuredIssueTool(
+        repo_config=repo_config,
+        product_context=ctx,
+    )
+    enrich_issue = EnrichIssueTool(
+        repo_config=repo_config,
+        product_context=ctx,
+    )
 
     pm_config = config["product_manager"]
     pa_config = config["product_agent"]
@@ -100,7 +111,7 @@ def create_product_crew(
         backstory=pm_config["backstory"],
         llm=llm,
         verbose=True,
-        tools=[create_issue, update_issue, list_issues],
+        tools=[create_structured, update_issue, list_issues],
     )
 
     product_agent = Agent(
@@ -109,9 +120,14 @@ def create_product_crew(
         backstory=pa_config["backstory"],
         llm=llm,
         verbose=True,
-        tools=[update_issue, list_issues],
+        tools=[enrich_issue, update_issue, list_issues],
     )
 
+    crew_context_block = (
+        f"\n\n--- Context from previous crews ---\n{crew_context}\n---"
+        if crew_context.strip()
+        else ""
+    )
     readme_block = f"\n\n--- Project README (align your work with this) ---\n{ctx.get('readme', '')}\n---" if ctx.get("readme") else ""
     overview_block = f"\n\n--- Product Overview ---\n{ctx.get('product_overview', '')}\n---" if ctx.get("product_overview") else ""
     goal_block = f"\n\n--- Product Goal ---\n{ctx.get('product_goal', '')}\n---" if ctx.get("product_goal") else ""
@@ -125,14 +141,17 @@ def create_product_crew(
     pm_task = Task(
         description=(
             "Your decisions must align with the Project README, Product Overview, and Product Goal below."
+            + crew_context_block
             + readme_block
             + overview_block
             + goal_block
             + cap_rule
             + "\n\nAnalyze product goals and the current backlog. List open issues using List Open GitHub Issues. "
-            "Create new GitHub issues only when under the open-issue cap; otherwise update or prioritize existing ones. "
+            "Create new GitHub issues only when under the open-issue cap using Create Structured GitHub Issue "
+            "(provide a free-form description; it will produce title, body, labels, acceptance criteria). "
             "Apply labels: 'backlog' for new items, 'prioritized' for items ready for the Product Agent. "
-            "Ensure the backlog reflects the most important product work and stays within the open-issue limit."
+            "Otherwise update or prioritize existing ones. Ensure the backlog reflects the most important "
+            "product work and stays within the open-issue limit."
         ),
         expected_output="Summary of issues created/updated with their labels (backlog, prioritized).",
         agent=product_manager,
@@ -144,8 +163,8 @@ def create_product_crew(
             + overview_block
             + goal_block
             + "\n\nFor each issue with the 'prioritized' label, enrich it with acceptance criteria and technical specs. "
-            "Use List Open GitHub Issues filtered by 'prioritized'. Use Update GitHub Issue to add comments "
-            "with acceptance criteria and set the 'ready-for-breakdown' label. "
+            "Use List Open GitHub Issues filtered by 'prioritized'. Use Enrich GitHub Issue with the issue number "
+            "to add structured acceptance criteria and set the 'ready-for-breakdown' label. "
             "Ensure each issue is clear enough for the Team Lead to break down into sub-tasks."
         ),
         expected_output="Summary of issues enriched and marked ready-for-breakdown.",
@@ -169,6 +188,7 @@ class ProductCrew:
         cls,
         inputs: dict | None = None,
         repo_config: "GitHubRepoConfig | None" = None,
+        crew_context: str = "",
     ) -> str:
         """Run the Product Crew. Logs when open issue count reaches cap."""
         product_context = _build_product_context(repo_config)
@@ -182,5 +202,9 @@ class ProductCrew:
                 f"[Product Crew] Open issue cap reached: {product_context['open_issue_count']} open issues (max {OPEN_ISSUE_CAP}). "
                 "No new issues should be created until count is below cap."
             )
-        crew = create_product_crew(repo_config=repo_config, product_context=product_context)
+        crew = create_product_crew(
+            repo_config=repo_config,
+            product_context=product_context,
+            crew_context=crew_context,
+        )
         return crew.kickoff(inputs=inputs or {})

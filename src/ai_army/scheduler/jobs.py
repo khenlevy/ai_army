@@ -30,7 +30,7 @@ def run_product_crew_job() -> None:
             try:
                 logger.info("Product Crew starting | repo: %s", repo_config.repo)
                 ProductCrew.kickoff(repo_config=repo_config)
-                logger.info("Product Crew done | repo: %s", repo_config.repo)
+                logger.info("Product Crew done successfully | repo: %s", repo_config.repo)
             except Exception as e:
                 logger.exception("Product Crew failed | repo: %s | %s", repo_config.repo, e)
         # Log next run

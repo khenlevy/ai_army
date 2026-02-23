@@ -1,5 +1,6 @@
 """QA Crew: Reviews code, runs tests, and merges PRs when passing."""
 
+import logging
 from pathlib import Path
 
 import yaml
@@ -8,9 +9,11 @@ from crewai import LLM
 
 from ai_army.tools import (
     ListPullRequestsTool,
-    MergePullRequestTool,
-    UpdateIssueTool,
+    ReviewPullRequestTool,
+    create_github_tools,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _load_agents_config() -> dict:
@@ -28,10 +31,13 @@ def _get_llm() -> LLM:
     )
 
 
-def create_qa_crew() -> Crew:
+def create_qa_crew(crew_context: str = "") -> Crew:
     """Create the QA Crew."""
+    logger.debug("create_qa_crew: building crew")
     config = _load_agents_config()
     llm = _get_llm()
+    _, _, _, _, list_prs, *_ = create_github_tools()
+    review_tool = ReviewPullRequestTool()
 
     automation_config = config["automation_engineer"]
 
@@ -41,17 +47,22 @@ def create_qa_crew() -> Crew:
         backstory=automation_config["backstory"],
         llm=llm,
         verbose=True,
-        tools=[ListPullRequestsTool(), MergePullRequestTool(), UpdateIssueTool()],
+        tools=[list_prs, review_tool],
     )
 
+    crew_context_block = (
+        f"\n\n--- Context from previous crews ---\n{crew_context}\n---\n\n"
+        if crew_context.strip()
+        else "\n\n"
+    )
     qa_task = Task(
         description=(
-            "List open pull requests using List Pull Requests. "
-            "For each PR, review the changes (based on PR title and description). "
-            "If the PR looks good and would pass review: use Merge Pull Request to merge it. "
-            "Use Update GitHub Issue to add the 'done' label to the linked issue (if you can determine it from the PR body). "
-            "If the PR needs changes: use Update GitHub Issue to add a comment with feedback (use the issue number from 'Closes #N' in the PR). "
-            "Prefer merging when in doubt - the goal is to keep the pipeline moving."
+            crew_context_block
+            + "List open pull requests using List Pull Requests. "
+            "For each PR, use Review Pull Request with the PR number. "
+            "The tool produces a structured review (merge or request_changes). "
+            "It merges when approved and sets 'done' on the linked issue, or adds feedback when changes are needed. "
+            "Process each open PR."
         ),
         expected_output="Summary of PRs reviewed: merged, or feedback provided.",
         agent=automation_engineer,
@@ -69,7 +80,9 @@ class QACrew:
     """QA Crew - reviews PRs and merges when passing."""
 
     @classmethod
-    def kickoff(cls, inputs: dict | None = None) -> str:
+    def kickoff(cls, inputs: dict | None = None, crew_context: str = "") -> str:
         """Run the QA Crew."""
-        crew = create_qa_crew()
-        return crew.kickoff(inputs=inputs or {})
+        crew = create_qa_crew(crew_context=crew_context)
+        result = crew.kickoff(inputs=inputs or {})
+        logger.info("QACrew: kickoff completed")
+        return result

@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 def _check_startup() -> bool:
     """Verify API, GitHub, and repos on startup. Returns True if ready."""
+    logger.info("Scheduler startup check...")
     if not has_available_tokens():
         logger.error("Startup failed: API tokens/rate limit - jobs will skip until available")
         return False
