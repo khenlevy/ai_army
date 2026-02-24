@@ -1,4 +1,11 @@
-"""AI-Army tools - GitHub integration layer and local git."""
+"""AI-Army tools – GitHub, git, repo files, RAG search.
+
+GitHub (Product, Team Lead, Dev, QA): CreateStructuredIssue, EnrichIssue, UpdateIssue, ListOpenIssues,
+BreakdownAndCreateSubIssuesTool, CreatePullRequest, ListPullRequests, ReviewPullRequest, MergePullRequest.
+Git: CreateLocalBranch, GitCommit, GitPush.
+Repo: RepoStructure, ListDir, ReadFile, WriteFile.
+Search: SearchCodebaseTool (RAG semantic search, used by Dev).
+"""
 
 from ai_army.config.settings import GitHubRepoConfig
 from ai_army.tools.github_tools import (

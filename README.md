@@ -25,7 +25,14 @@ Multi-agent orchestration for GitHub-driven development. Crews create issues, br
 
 **Scheduler (hourly pipeline):** Product (:00) → Team Lead (:10) → Dev frontend (:20) backend (:30) fullstack (:40) → QA (:50). Label-based: each dev agent picks only its label; `in-progress` claims an issue to avoid overlap.
 
-Create these in your GitHub repo before use.
+Create these in your GitHub repo before use. See [LABELS.md](LABELS.md) for the full label lifecycle and crew mapping.
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) – Pipeline, crew roles, context flow, scheduler
+- [CONFIG.md](CONFIG.md) – Environment variables reference
+- [ENTRY_POINTS.md](ENTRY_POINTS.md) – CLI commands and scheduler jobs
+- [LABELS.md](LABELS.md) – Label workflow glossary
 
 ## Setup
 
