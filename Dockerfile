@@ -11,10 +11,7 @@ COPY README.md ./
 COPY scripts/ ./scripts/
 COPY src/ ./src/
 
-# Install CPU-only torch first to avoid OOM from CUDA packages during poetry install
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-
-# Install dependencies and the project (no dev group)
+# Install dependencies and the project (no dev group). torch comes from pytorch-cpu source in pyproject.toml
 RUN poetry config virtualenvs.create false \
     && poetry install --without dev --no-interaction --no-ansi
 
