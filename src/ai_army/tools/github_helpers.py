@@ -18,13 +18,13 @@ def _get_repo_from_config(config: GitHubRepoConfig | None = None):
         return client.get_repo(config.repo)
     repos = get_github_repos()
     if not repos:
-        if settings.github_token and settings.github_target_repo:
-            auth = Auth.Token(settings.github_token)
+        if settings.github_target_token and settings.github_target_repo:
+            auth = Auth.Token(settings.github_target_token)
             client = Github(auth=auth)
             return client.get_repo(settings.github_target_repo)
-        logger.error("No GitHub repo configured. Set GITHUB_TARGET_REPO and GITHUB_TOKEN or GITHUB_REPO_1 and GITHUB_TOKEN_1.")
+        logger.error("No GitHub repo configured. Set GITHUB_TARGET_REPO and GITHUB_TARGET_TOKEN or GITHUB_REPO_1 and GITHUB_TOKEN_1.")
         raise ValueError(
-            "No GitHub repo configured. Set GITHUB_TARGET_REPO and GITHUB_TOKEN or GITHUB_REPO_1 and GITHUB_TOKEN_1."
+            "No GitHub repo configured. Set GITHUB_TARGET_REPO and GITHUB_TARGET_TOKEN or GITHUB_REPO_1 and GITHUB_TOKEN_1."
         )
     c = repos[0]
     auth = Auth.Token(c.token)

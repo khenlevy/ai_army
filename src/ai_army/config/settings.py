@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
 
     # Single repo (backward compat)
-    github_token: str = ""
+    github_target_token: str = ""
     github_target_repo: str = ""
 
     # Multi-repo: GITHUB_REPO_1, GITHUB_TOKEN_1, GITHUB_REPO_2, GITHUB_TOKEN_2, ...
@@ -56,7 +56,7 @@ def get_github_repos() -> list[GitHubRepoConfig]:
     """Get list of GitHub repo configs from env.
 
     Supports:
-    - Single: GITHUB_TOKEN, GITHUB_TARGET_REPO
+    - Single: GITHUB_TARGET_TOKEN, GITHUB_TARGET_REPO
     - Multi: GITHUB_REPO_1, GITHUB_TOKEN_1, GITHUB_REPO_2, GITHUB_TOKEN_2, ...
     """
     configs: list[GitHubRepoConfig] = []
@@ -73,10 +73,10 @@ def get_github_repos() -> list[GitHubRepoConfig]:
             break
 
     # Fallback to single repo
-    if not configs and settings.github_token and settings.github_target_repo:
+    if not configs and settings.github_target_token and settings.github_target_repo:
         configs.append(
             GitHubRepoConfig(
-                token=settings.github_token,
+                token=settings.github_target_token,
                 repo=settings.github_target_repo,
             )
         )

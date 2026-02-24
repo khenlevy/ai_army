@@ -21,7 +21,7 @@ def _check_startup() -> bool:
         return False
     repos = get_github_repos()
     if not repos:
-        logger.error("Startup failed: no GitHub repos (GITHUB_TOKEN/GITHUB_TARGET_REPO or GITHUB_REPO_N/GITHUB_TOKEN_N)")
+        logger.error("Startup failed: no GitHub repos (GITHUB_TARGET_TOKEN/GITHUB_TARGET_REPO or GITHUB_REPO_N/GITHUB_TOKEN_N)")
         return False
     # Verify we can connect to GitHub and get each repo
     results = check_github_connection_and_log(repos)

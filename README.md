@@ -32,7 +32,7 @@ poetry install
 cp .env.example .env
 ```
 
-Set `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `GITHUB_TARGET_REPO` (or `GITHUB_REPO_1`/`GITHUB_TOKEN_1` for multi-repo). Optional: `product_context.yaml` (Product Crew); `LANGCHAIN_TRACING_V2` + `LANGCHAIN_API_KEY` (LangSmith); `REPO_WORKSPACE` (dev clone path). Product Crew caps at 8 open issues.
+Set `ANTHROPIC_API_KEY`, `GITHUB_TARGET_TOKEN`, `GITHUB_TARGET_REPO` (or `GITHUB_REPO_1`/`GITHUB_TOKEN_1` for multi-repo). Optional: `product_context.yaml` (Product Crew); `LANGCHAIN_TRACING_V2` + `LANGCHAIN_API_KEY` (LangSmith); `REPO_WORKSPACE` (dev clone path). Product Crew caps at 8 open issues.
 
 ## Run
 
@@ -50,7 +50,7 @@ poetry run ai-army qa
 python scripts/release.py   # Deploy current code to droplet
 ```
 
-Requires `GITHUB_TOKEN_SELF` (or `GITHUB_TOKEN`) in `.env.production` with `write:packages` scope for GHCR push.
+Requires `GITHUB_TOKEN_SELF` (or `GITHUB_TARGET_TOKEN`) in `.env.production` with `write:packages` scope for GHCR push.
 
 ## Tech
 
