@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Release script: build locally, save to tar, ship and run on production.
 
-Flow: version bump -> git commit/push -> docker build -> save tar -> scp -> load + run on droplet.
+Flow: version bump -> git commit/push -> docker build -> save compressed tar -> scp -> load + run on droplet.
 
 Usage:
     python scripts/release.py           # Build and ship
@@ -36,7 +36,11 @@ def log(msg: str, step: str = "", elapsed_sec: float | None = None) -> None:
 
 def ensure_docker_running(dry_run: bool = False) -> int:
     """Ensure Docker daemon is running. Start Docker Desktop on macOS if needed."""
-    r = subprocess.run(["docker", "info"], capture_output=True)
+    try:
+        r = subprocess.run(["docker", "info"], capture_output=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        log("Docker info timed out (daemon unresponsive)")
+        return 1
     if r.returncode == 0:
         return 0
     if dry_run:
@@ -47,8 +51,11 @@ def ensure_docker_running(dry_run: bool = False) -> int:
         subprocess.run(["open", "-a", "Docker"], check=True)
         for i in range(60):
             time.sleep(2)
-            r = subprocess.run(["docker", "info"], capture_output=True)
-            if r.returncode == 0:
+            try:
+                r = subprocess.run(["docker", "info"], capture_output=True, timeout=15)
+            except subprocess.TimeoutExpired:
+                r = None
+            if r and r.returncode == 0:
                 print("Docker is ready.")
                 return 0
             print(f"  Waiting for Docker... ({i * 2}s)")
@@ -143,6 +150,7 @@ def get_version() -> str:
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        timeout=30,
     )
     return r.stdout.strip() if r.returncode == 0 else "0.0.0"
 
@@ -170,12 +178,19 @@ def main() -> int:
         log("Skipping version bump (--no-bump)")
         version = prev_version
     else:
-        # Retag current latest -> prev_version before we overwrite it
+        # Retag current latest -> prev_version before we overwrite it (skip if no image or Docker hung)
         if not args.dry_run:
-            r = subprocess.run(["docker", "image", "inspect", f"{IMAGE}:latest"], capture_output=True)
-            if r.returncode == 0:
-                run(["docker", "tag", f"{IMAGE}:latest", f"{IMAGE}:{prev_version}"])
-                log(f"Retagged previous latest -> {IMAGE}:{prev_version}")
+            try:
+                r = subprocess.run(
+                    ["docker", "image", "inspect", f"{IMAGE}:latest"],
+                    capture_output=True,
+                    timeout=15,
+                )
+                if r.returncode == 0:
+                    run(["docker", "tag", f"{IMAGE}:latest", f"{IMAGE}:{prev_version}"])
+                    log(f"Retagged previous latest -> {IMAGE}:{prev_version}")
+            except subprocess.TimeoutExpired:
+                log("Docker inspect timed out (daemon slow?) - skipping retag")
         log("Bumping version...")
         rc = run(["poetry", "version", "patch"], dry_run=args.dry_run)
         if rc != 0:
@@ -219,20 +234,24 @@ def main() -> int:
     if rc != 0:
         return rc
 
-    # 5. Save image to tar
-    log("Step 5/9: Saving image to tar", "5", elapsed())
+    # 5. Save image to compressed tar (gzip)
+    log("Step 5/9: Saving image to compressed tar", "5", elapsed())
     DIST_DIR.mkdir(exist_ok=True)
-    tar_name = f"ai-army-{version}.tar"
+    tar_name = f"ai-army-{version}.tar.gz"
     tar_path = DIST_DIR / tar_name
     if args.dry_run:
-        print(f"  [dry-run] docker save {IMAGE}:latest -o {tar_path}", flush=True)
+        print(f"  [dry-run] docker save {IMAGE}:latest | gzip > {tar_path}", flush=True)
     else:
-        log(f"Writing {tar_path} (~1GB, may take 1-2 min)...")
-        rc = run(["docker", "save", f"{IMAGE}:latest", "-o", str(tar_path)])
+        log(f"Writing {tar_path} (compressed, may take 2-3 min)...")
+        rc = subprocess.run(
+            f"docker save {IMAGE}:latest | gzip > {tar_path}",
+            shell=True,
+            cwd=REPO_ROOT,
+        ).returncode
         if rc != 0:
             return rc
         size_mb = tar_path.stat().st_size / (1024 * 1024)
-        log(f"Saved {size_mb:.1f} MB", elapsed_sec=elapsed())
+        log(f"Saved {size_mb:.1f} MB (compressed)", elapsed_sec=elapsed())
 
     app_path = os.getenv("RELEASE_APP_PATH", DEFAULT_APP_PATH)
 
@@ -308,6 +327,23 @@ def main() -> int:
         time.sleep(3)
         log("Recent logs:")
         run(["ssh", SSH_HOST, f"sudo docker logs {CONTAINER} --tail 30"])
+        # Remove local tar to save storage
+        if tar_path.is_file():
+            tar_path.unlink()
+            log(f"Removed local {tar_name}")
+        # Max cleanup: remove all unused images (incl. ai-army:*), volumes, build cache
+        log("Pruning Docker (all unused images, volumes, build cache)...")
+        try:
+            subprocess.run(
+                ["docker", "system", "prune", "-a", "--volumes", "-f"],
+                capture_output=True,
+                timeout=120,
+            )
+            subprocess.run(["docker", "builder", "prune", "-a", "-f"], capture_output=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            log("Docker prune timed out (skipped)")
+        else:
+            log("Docker prune done")
 
     return 0
 

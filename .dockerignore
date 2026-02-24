@@ -1,5 +1,6 @@
 # Exclude tars and large artifacts from build context
 *.tar
+*.tar.gz
 dist/
 .venv/
 __pycache__/
