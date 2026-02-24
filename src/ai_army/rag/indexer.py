@@ -12,8 +12,6 @@ from ai_army.config.settings import settings
 from ai_army.rag.chunker import chunk_file, should_index_path
 
 logger = logging.getLogger(__name__)
-
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 COLLECTION_NAME = "codebase"
 
 
@@ -57,7 +55,7 @@ def build_index(repo_path: Path) -> Path:
     index_dir = _index_dir_for_repo(repo_path)
     index_dir.mkdir(parents=True, exist_ok=True)
 
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    model = SentenceTransformer(settings.rag_embedding_model)
     client = chromadb.PersistentClient(path=str(index_dir))
     collection = client.get_or_create_collection(
         COLLECTION_NAME, metadata={"hnsw:space": "cosine"}

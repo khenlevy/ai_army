@@ -91,11 +91,11 @@ def run_qa_crew():
 
 
 def run_scheduler():
-    """Run the hourly scheduler (Product Crew)."""
+    """Run the scheduler: Product → Team Lead → Dev (frontend/backend/fullstack) → QA, hourly pipeline."""
     configure_logging()
     from ai_army.scheduler.runner import start_scheduler
     scheduler = start_scheduler()
-    logger.info("Scheduler running. Product Crew every hour. Ctrl+C to stop.")
+    logger.info("Scheduler running. Ctrl+C to stop.")
     try:
         import time
         while True:
@@ -113,7 +113,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # schedule - run scheduler (default)
-    subparsers.add_parser("schedule", help="Run hourly scheduler (Product Crew)")
+    subparsers.add_parser("schedule", help="Run scheduler (Product → Team Lead → Dev → QA pipeline)")
 
     # product - run Product Crew once
     subparsers.add_parser("product", help="Run Product Crew once")

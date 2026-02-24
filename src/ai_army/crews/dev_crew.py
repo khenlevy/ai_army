@@ -129,11 +129,13 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
     )
 
     # ReAct-style: Think task first - plan before acting
+    # Label filter ensures no overlap: frontend agent only sees frontend, backend only backend, fullstack only fullstack
     think_task = Task(
         description=(
             crew_context_block
-            + f"Use List Open GitHub Issues to find issues with the '{label_filter}' label that are NOT 'in-progress' or 'in-review'. "
-            "Pick one issue to work on. Analyze it and output your implementation plan: "
+            + f"Use List Open GitHub Issues with labels=['{label_filter}'] to find broken-down sub-issues. "
+            "Filter the results: pick ONLY issues that do NOT have 'in-progress' or 'in-review' (those are claimed or done). "
+            "Pick one available issue to work on. Analyze it and output your implementation plan: "
             "(1) Search query you will use to find relevant code, (2) Files/directories you expect to explore, "
             "(3) Changes you plan to make, (4) Branch name (e.g. feature/issue-N-description), (5) Commit strategy. "
             "Do NOT create a branch, search, read, or edit files yet. Only list issues and output the plan."
@@ -144,13 +146,13 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
 
     impl_task = Task(
         description=(
-            "Execute the plan you created. Use Update GitHub Issue to set 'in-progress' on the chosen issue. "
-            "Use Create Local Branch to create the branch. Use Search Codebase with your planned query (or issue number) "
-            "to find relevant code. Use Repo Structure and List Directory to explore. Use Read File and Write File "
-            "to implement. Make multiple Git Commits as you go. When done: Git Push, Create Pull Request with 'Closes #N', "
-            "and Update GitHub Issue to set 'in-review'. If no implementable issues exist, report that."
+            "Execute the plan. FIRST: Use Update GitHub Issue to add 'in-progress' to the chosen issue (claims it, prevents other agents from picking it). "
+            "Then: Create Local Branch. Use Search Codebase (RAG semantic search) with your planned query or issue number to find relevant code "
+            "before exploring. Use Repo Structure, List Directory, Read File, Write File to implement. "
+            "Make multiple Git Commits as you go. When done: Git Push, Create Pull Request with 'Closes #N', "
+            "and Update GitHub Issue to remove 'in-progress' and add 'in-review'. If no available issues exist, report that."
         ),
-        expected_output="Summary: repo explored, implementation done (with file edits and one or more commits), branch pushed, PR opened, issue set to in-review.",
+        expected_output="Summary: issue claimed (in-progress), implementation done, branch pushed, PR opened, issue set to in-review.",
         agent=agent,
         context=[think_task],
     )

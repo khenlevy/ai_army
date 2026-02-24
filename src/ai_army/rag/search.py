@@ -11,8 +11,6 @@ from ai_army.config.settings import settings
 from ai_army.rag.indexer import build_index
 
 logger = logging.getLogger(__name__)
-
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 COLLECTION_NAME = "codebase"
 MAX_SNIPPET_LINES = 30
 
@@ -74,7 +72,7 @@ def search(repo_path: Path | str, query: str, top_k: int = 8) -> list[dict]:
         return []
 
     index_dir = _ensure_fresh_index(repo_path)
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    model = SentenceTransformer(settings.rag_embedding_model)
     client = chromadb.PersistentClient(path=str(index_dir))
     collection = client.get_or_create_collection(
         COLLECTION_NAME, metadata={"hnsw:space": "cosine"}

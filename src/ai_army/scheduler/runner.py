@@ -1,12 +1,26 @@
-"""Scheduler runner - hourly Product Crew with startup check."""
+"""Scheduler runner - full pipeline: Product → Team Lead → Dev (frontend/backend/fullstack) → QA.
+
+Schedule staggered to avoid blocking:
+- Product (min 0): backlog → prioritized → ready-for-breakdown
+- Team Lead (min 10): ready-for-breakdown → sub-issues with frontend/backend/fullstack
+- Dev frontend (min 20), backend (min 30), fullstack (min 40): each picks own label, adds in-progress
+- QA (min 50): reviews PRs, merges, sets done
+"""
 
 import logging
 from datetime import datetime, timezone
+from functools import partial
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from ai_army.config import get_github_repos
-from ai_army.scheduler.jobs import run_product_crew_job
+from ai_army.scheduler.jobs import (
+    run_dev_crew_job,
+    run_product_crew_job,
+    run_qa_crew_job,
+    run_team_lead_crew_job,
+    set_scheduler,
+)
 from ai_army.scheduler.token_check import has_available_tokens
 from ai_army.tools.github_tools import check_github_connection_and_log
 
@@ -36,17 +50,55 @@ def _check_startup() -> bool:
 
 
 def create_scheduler() -> BackgroundScheduler:
-    """Create and configure the scheduler."""
-    from ai_army.scheduler.jobs import set_scheduler
-
+    """Create and configure the scheduler with staggered pipeline."""
     scheduler = BackgroundScheduler()
+    # Product: min 0 - manages backlog, produces ready-for-breakdown
     scheduler.add_job(
         run_product_crew_job,
         trigger="cron",
-        hour="*",  # Every hour
+        minute="0",
+        hour="*",
         id="product_crew",
     )
-    # Run Product Crew once at startup (as if schedule just arrived)
+    # Team Lead: min 10 - breaks down into frontend/backend/fullstack sub-issues
+    scheduler.add_job(
+        run_team_lead_crew_job,
+        trigger="cron",
+        minute="10",
+        hour="*",
+        id="team_lead_crew",
+    )
+    # Dev: min 20, 30, 40 - each agent type picks its label, adds in-progress when claiming
+    scheduler.add_job(
+        partial(run_dev_crew_job, "frontend"),
+        trigger="cron",
+        minute="20",
+        hour="*",
+        id="dev_crew_frontend",
+    )
+    scheduler.add_job(
+        partial(run_dev_crew_job, "backend"),
+        trigger="cron",
+        minute="30",
+        hour="*",
+        id="dev_crew_backend",
+    )
+    scheduler.add_job(
+        partial(run_dev_crew_job, "fullstack"),
+        trigger="cron",
+        minute="40",
+        hour="*",
+        id="dev_crew_fullstack",
+    )
+    # QA: min 50 - reviews PRs, merges when approved
+    scheduler.add_job(
+        run_qa_crew_job,
+        trigger="cron",
+        minute="50",
+        hour="*",
+        id="qa_crew",
+    )
+    # Run Product once at startup
     scheduler.add_job(
         run_product_crew_job,
         trigger="date",
@@ -62,8 +114,7 @@ def start_scheduler() -> BackgroundScheduler:
     _check_startup()
     scheduler = create_scheduler()
     scheduler.start()
-    job = scheduler.get_job("product_crew")
-    if job and job.next_run_time:
-        logger.info("Next run: %s", job.next_run_time.strftime("%Y-%m-%d %H:%M"))
-    logger.info("Product Crew will run once at startup, then every hour.")
+    logger.info(
+        "Scheduler running. Pipeline: Product(:00) → Team Lead(:10) → Dev frontend(:20) backend(:30) fullstack(:40) → QA(:50)"
+    )
     return scheduler

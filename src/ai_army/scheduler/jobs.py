@@ -1,9 +1,13 @@
-"""Scheduled jobs - Product Crew per repo, with token check."""
+"""Scheduled jobs - Product, Team Lead, Dev, QA crews with token check and context store."""
 
 import logging
 
 from ai_army.config import get_github_repos
+from ai_army.crews.dev_crew import DevCrew
 from ai_army.crews.product_crew import ProductCrew
+from ai_army.crews.qa_crew import QACrew
+from ai_army.crews.team_lead_crew import TeamLeadCrew
+from ai_army.memory.context_store import get_context_store
 from ai_army.scheduler.token_check import run_if_tokens_available
 
 logger = logging.getLogger(__name__)
@@ -17,6 +21,13 @@ def set_scheduler(scheduler) -> None:
     _scheduler = scheduler
 
 
+def _log_next_run(job_id: str) -> None:
+    if _scheduler:
+        job = _scheduler.get_job(job_id)
+        if job and job.next_run_time:
+            logger.info("Next %s: %s", job_id, job.next_run_time.strftime("%Y-%m-%d %H:%M"))
+
+
 def run_product_crew_job() -> None:
     """Run Product Crew for each configured repo. Skips when API limit reached."""
     repos = get_github_repos()
@@ -25,18 +36,87 @@ def run_product_crew_job() -> None:
         return
 
     def _run() -> None:
+        store = get_context_store()
+        store.load()
+        crew_context = store.get_summary(exclude="product")
+        logger.info("Product Crew: context from previous crews (%d chars)", len(crew_context))
         logger.info("GitHub repos for this run: %s", ", ".join(r.repo for r in repos))
         for repo_config in repos:
             try:
                 logger.info("Product Crew starting | repo: %s", repo_config.repo)
-                ProductCrew.kickoff(repo_config=repo_config)
+                result = ProductCrew.kickoff(repo_config=repo_config, crew_context=crew_context)
+                store.add("product", result)
                 logger.info("Product Crew done successfully | repo: %s", repo_config.repo)
             except Exception as e:
                 logger.exception("Product Crew failed | repo: %s | %s", repo_config.repo, e)
-        # Log next run
-        if _scheduler:
-            job = _scheduler.get_job("product_crew")
-            if job and job.next_run_time:
-                logger.info("Next run: %s", job.next_run_time.strftime("%Y-%m-%d %H:%M"))
+        _log_next_run("product_crew")
+
+    run_if_tokens_available(_run)
+
+
+def run_team_lead_crew_job() -> None:
+    """Run Team Lead Crew: break down ready-for-breakdown issues into sub-issues (frontend/backend/fullstack)."""
+    repos = get_github_repos()
+    if not repos:
+        logger.warning("No GitHub repos configured, skipping job")
+        return
+
+    def _run() -> None:
+        store = get_context_store()
+        store.load()
+        crew_context = store.get_summary(exclude="team_lead")
+        logger.info("Team Lead Crew: context from previous crews (%d chars)", len(crew_context))
+        try:
+            logger.info("Team Lead Crew starting")
+            result = TeamLeadCrew.kickoff(crew_context=crew_context)
+            store.add("team_lead", result)
+            logger.info("Team Lead Crew done successfully")
+        except Exception as e:
+            logger.exception("Team Lead Crew failed: %s", e)
+        _log_next_run("team_lead_crew")
+
+    run_if_tokens_available(_run)
+
+
+def run_dev_crew_job(agent_type: str) -> None:
+    """Run Dev Crew for one agent type (frontend, backend, fullstack). Picks issues with matching label, not in-progress/in-review."""
+
+    def _run() -> None:
+        store = get_context_store()
+        store.load()
+        crew_context = store.get_summary(exclude="dev")
+        logger.info("Dev Crew (%s): context from previous crews (%d chars)", agent_type, len(crew_context))
+        try:
+            logger.info("Dev Crew (%s) starting", agent_type)
+            result = DevCrew.kickoff(agent_type=agent_type, crew_context=crew_context)
+            store.add("dev", result)
+            logger.info("Dev Crew (%s) done successfully", agent_type)
+        except Exception as e:
+            logger.exception("Dev Crew (%s) failed: %s", agent_type, e)
+        _log_next_run(f"dev_crew_{agent_type}")
+
+    run_if_tokens_available(_run)
+
+
+def run_qa_crew_job() -> None:
+    """Run QA Crew: review PRs, merge when approved, set issues to done."""
+    repos = get_github_repos()
+    if not repos:
+        logger.warning("No GitHub repos configured, skipping job")
+        return
+
+    def _run() -> None:
+        store = get_context_store()
+        store.load()
+        crew_context = store.get_summary(exclude="qa")
+        logger.info("QA Crew: context from previous crews (%d chars)", len(crew_context))
+        try:
+            logger.info("QA Crew starting")
+            result = QACrew.kickoff(crew_context=crew_context)
+            store.add("qa", result)
+            logger.info("QA Crew done successfully")
+        except Exception as e:
+            logger.exception("QA Crew failed: %s", e)
+        _log_next_run("qa_crew")
 
     run_if_tokens_available(_run)

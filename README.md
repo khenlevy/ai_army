@@ -23,6 +23,8 @@ Multi-agent orchestration for GitHub-driven development. Crews create issues, br
 
 `backlog` → `prioritized` → `ready-for-breakdown` → `broken-down` → `frontend`/`backend`/`fullstack` → `in-progress` → `in-review` → `done`
 
+**Scheduler (hourly pipeline):** Product (:00) → Team Lead (:10) → Dev frontend (:20) backend (:30) fullstack (:40) → QA (:50). Label-based: each dev agent picks only its label; `in-progress` claims an issue to avoid overlap.
+
 Create these in your GitHub repo before use.
 
 ## Setup

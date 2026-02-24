@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # Directory where dev crew clones target repos (GITHUB_TARGET_REPO / GITHUB_REPO_N). Default: .ai_army_workspace in cwd.
     repo_workspace: str = ""
 
+    # RAG embedding model for codebase search (dev agents). sentence-transformers model ID.
+    rag_embedding_model: str = "all-MiniLM-L6-v2"
+
 
 def get_settings() -> Settings:
     """Get application settings."""

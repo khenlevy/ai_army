@@ -43,9 +43,9 @@ class SearchCodebaseTool(BaseTool):
 
     name: str = "Search Codebase"
     description: str = (
-        "Search the codebase for code relevant to a query. Use the current issue number to search "
-        "by issue title and body, or pass a short query (e.g. keywords from the issue). Returns file paths "
-        "and snippets. Use Read File on those paths to implement changes."
+        "RAG semantic search over the codebase. Uses the configured embedding model to find code relevant to a query. "
+        "Use the current issue number to search by issue title and body, or pass a short query (e.g. keywords from the issue). "
+        "Returns file paths and snippets. Use Read File on those paths to implement changes."
     )
     args_schema: Type[BaseModel] = SearchCodebaseInput
 
