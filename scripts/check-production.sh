@@ -4,7 +4,7 @@ set -e
 
 SSH_HOST="${SSH_HOST:-ai-army-droplet}"
 CONTAINER="${CONTAINER:-ai-army}"
-IMAGE="${IMAGE:-ghcr.io/khenlevy/ai-army}"
+IMAGE="${IMAGE:-ai-army}"
 
 echo "=== Container (name, image, status) ==="
 ssh "$SSH_HOST" "sudo docker ps -a --format '{{.Names}} {{.Image}} {{.Status}}'"

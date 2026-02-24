@@ -15,7 +15,7 @@ if [ "$AVAIL_KB" -lt "$MIN_AVAIL_KB" ]; then
   echo "=== Low disk (<5GB). Cleaning Docker to free space ==="
   sudo docker stop ai-army 2>/dev/null || true
   sudo docker rm ai-army 2>/dev/null || true
-  sudo docker rmi ghcr.io/khenlevy/ai-army:latest 2>/dev/null || true
+  sudo docker rmi ai-army:latest 2>/dev/null || true
   # Stop and remove ALL containers (including build containers)
   for c in $(sudo docker ps -aq 2>/dev/null); do sudo docker stop "$c" 2>/dev/null || true; done
   for c in $(sudo docker ps -aq 2>/dev/null); do sudo docker rm "$c" 2>/dev/null || true; done
