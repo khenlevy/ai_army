@@ -47,8 +47,10 @@ poetry run ai-army qa
 ## Deploy
 
 ```bash
-python scripts/release.py --deploy   # Tag + deploy to droplet
+python scripts/release.py   # Deploy current code to droplet
 ```
+
+Requires `GITHUB_TOKEN_SELF` (or `GITHUB_TOKEN`) in `.env.production` with `write:packages` scope for GHCR push.
 
 ## Tech
 

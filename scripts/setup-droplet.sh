@@ -10,10 +10,10 @@ set -e
 APP_PATH="${RELEASE_APP_PATH:-$HOME/ai_army}"
 GIT_REPO_URL="${GIT_REPO_URL:-}"  # e.g. https://github.com/owner/ai_army.git
 
-# --- Swap (avoid OOM during Docker build) ---
+# --- Swap (helps at runtime; 1GB to preserve disk) ---
 if [ "$(sudo swapon --show | wc -l)" -eq 0 ]; then
-  echo "=== Creating 2GB swap file ==="
-  sudo fallocate -l 2G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+  echo "=== Creating 1GB swap file ==="
+  sudo fallocate -l 1G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
   sudo chmod 600 /swapfile
   sudo mkswap /swapfile
   sudo swapon /swapfile
@@ -35,7 +35,7 @@ else
   echo "Docker installed: $(docker --version)"
 fi
 
-# --- App directory: ensure repo exists ---
+# --- App directory: ensure exists (clone repo if GIT_REPO_URL set, else mkdir) ---
 echo "=== Ensuring app directory: $APP_PATH ==="
 if [ -n "$GIT_REPO_URL" ] && [ ! -d "$APP_PATH/.git" ]; then
   mkdir -p "$(dirname "$APP_PATH")"
@@ -44,8 +44,9 @@ if [ -n "$GIT_REPO_URL" ] && [ ! -d "$APP_PATH/.git" ]; then
 elif [ -d "$APP_PATH/.git" ]; then
   echo "Repo already present at $APP_PATH"
 else
-  echo "No repo at $APP_PATH. Set GIT_REPO_URL and re-run, or clone manually."
-  exit 1
+  EXPANDED="${APP_PATH/#\~/$HOME}"
+  mkdir -p "$EXPANDED"
+  echo "App directory created at $EXPANDED (no repo; .env.production will be scp'd on deploy)"
 fi
 
 echo "=== Prerequisites OK. Ensure $APP_PATH/.env.production exists, then deploy. ==="
