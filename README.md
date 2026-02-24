@@ -33,6 +33,7 @@ Create these in your GitHub repo before use. See [LABELS.md](LABELS.md) for the 
 - [CONFIG.md](CONFIG.md) – Environment variables reference
 - [ENTRY_POINTS.md](ENTRY_POINTS.md) – CLI commands and scheduler jobs
 - [LABELS.md](LABELS.md) – Label workflow glossary
+- [PRODUCTION.md](PRODUCTION.md) – SSH, logs, release pipeline
 
 ## Setup
 
