@@ -1,0 +1,10 @@
+# Exclude tars and large artifacts from build context
+*.tar
+dist/
+.venv/
+__pycache__/
+*.pyc
+.git/
+.pytest_cache/
+.env
+.env.*
