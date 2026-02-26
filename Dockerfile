@@ -2,6 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Dev crew clones repos via git; slim image doesn't include it
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install poetry
 RUN pip install --no-cache-dir poetry
 
