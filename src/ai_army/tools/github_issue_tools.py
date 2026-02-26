@@ -108,10 +108,15 @@ class CreateStructuredIssueTool(BaseTool):
 Description:
 {description}
 
-Produce a complete issue with: title, body, labels (e.g. backlog, prioritized, feature, bug), acceptance_criteria (list of strings), and technical_notes."""
+Produce a complete issue with: title, body, labels (always include 'backlog' and 'prioritized' for product issues; add feature/bug as needed), acceptance_criteria (list of strings), and technical_notes."""
         try:
             chain = create_issue_chain()
             spec: IssueSpec = chain.invoke(prompt)
+            # Ensure new product issues get backlog+prioritized at creation
+            if "backlog" not in spec.labels:
+                spec.labels.append("backlog")
+            if "prioritized" not in spec.labels:
+                spec.labels.append("prioritized")
             logger.info("CreateStructuredIssueTool: produced IssueSpec with title=%s", spec.title)
         except Exception as e:
             logger.exception("CreateStructuredIssueTool chain failed: %s", e)

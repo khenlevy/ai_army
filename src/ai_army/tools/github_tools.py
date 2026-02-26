@@ -8,6 +8,8 @@ github_issue_tools, and github_pr_tools to keep files under the line limit.
 from ai_army.config.settings import GitHubRepoConfig
 from ai_army.tools.github_helpers import (
     check_github_connection_and_log,
+    count_issues_for_dev,
+    count_issues_ready_for_breakdown,
     get_open_issue_count,
     get_repo_from_config,
     get_repo_readme,

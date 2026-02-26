@@ -53,6 +53,46 @@ def get_repo_readme(repo) -> str:
         return ""
 
 
+def count_issues_ready_for_breakdown(repo_config: GitHubRepoConfig | None = None) -> int:
+    """Count open issues with ready-for-breakdown that do NOT have broken-down. GitHub API only."""
+    try:
+        repo = _get_repo_from_config(repo_config)
+        issues = list(repo.get_issues(state="open", labels=["ready-for-breakdown"]))
+        count = 0
+        for i in issues:
+            if i.pull_request:
+                continue
+            label_names = {l.name for l in (i.labels or [])}
+            if "broken-down" not in label_names:
+                count += 1
+        return count
+    except Exception as e:
+        logger.warning("count_issues_ready_for_breakdown failed: %s", e)
+        return 0
+
+
+def count_issues_for_dev(
+    repo_config: GitHubRepoConfig | None = None,
+    agent_type: str = "frontend",
+) -> int:
+    """Count open issues with agent_type label that do NOT have in-progress or in-review. GitHub API only."""
+    try:
+        repo = _get_repo_from_config(repo_config)
+        issues = list(repo.get_issues(state="open", labels=[agent_type]))
+        count = 0
+        for i in issues:
+            if i.pull_request:
+                continue
+            label_names = {l.name for l in (i.labels or [])}
+            if "in-progress" in label_names or "in-review" in label_names:
+                continue
+            count += 1
+        return count
+    except Exception as e:
+        logger.warning("count_issues_for_dev(%s) failed: %s", agent_type, e)
+        return 0
+
+
 def check_github_connection_and_log(
     repos: list[GitHubRepoConfig] | None = None,
 ) -> list[tuple[GitHubRepoConfig, bool]]:

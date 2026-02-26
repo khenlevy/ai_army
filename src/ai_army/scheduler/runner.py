@@ -1,10 +1,10 @@
-"""Scheduler runner - full pipeline: Product → Team Lead → Dev (frontend/backend/fullstack) → QA.
+"""Scheduler runner - full pipeline: Product → Team Lead → Dev (frontend/backend/fullstack).
 
 Schedule staggered to avoid blocking:
 - Product (min 0): backlog → prioritized → ready-for-breakdown
-- Team Lead (min 10): ready-for-breakdown → sub-issues with frontend/backend/fullstack
-- Dev frontend (min 20), backend (min 30), fullstack (min 40): each picks own label, adds in-progress
-- QA (min 50): reviews PRs, merges, sets done
+- Team Lead (min 10): ready-for-breakdown → sub-issues with frontend/backend/fullstack (GitHub pre-check)
+- Dev frontend (min 20), backend (min 30), fullstack (min 40): each picks own label (GitHub pre-check)
+- QA disabled (automation infra to be added later)
 """
 
 import logging
@@ -17,7 +17,6 @@ from ai_army.config import get_github_repos
 from ai_army.scheduler.jobs import (
     run_dev_crew_job,
     run_product_crew_job,
-    run_qa_crew_job,
     run_team_lead_crew_job,
     set_scheduler,
 )
@@ -90,14 +89,7 @@ def create_scheduler() -> BackgroundScheduler:
         hour="*",
         id="dev_crew_fullstack",
     )
-    # QA: min 50 - reviews PRs, merges when approved
-    scheduler.add_job(
-        run_qa_crew_job,
-        trigger="cron",
-        minute="50",
-        hour="*",
-        id="qa_crew",
-    )
+    # QA disabled - automation infra to be added later
     # Run Product once at startup
     scheduler.add_job(
         run_product_crew_job,
@@ -115,6 +107,6 @@ def start_scheduler() -> BackgroundScheduler:
     scheduler = create_scheduler()
     scheduler.start()
     logger.info(
-        "Scheduler running. Pipeline: Product(:00) → Team Lead(:10) → Dev frontend(:20) backend(:30) fullstack(:40) → QA(:50)"
+        "Scheduler running. Pipeline: Product(:00) → Team Lead(:10) → Dev frontend(:20) backend(:30) fullstack(:40). QA disabled."
     )
     return scheduler

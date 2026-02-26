@@ -1,14 +1,18 @@
-"""Scheduled jobs - Product, Team Lead, Dev, QA crews with token check and context store."""
+"""Scheduled jobs - Product, Team Lead, Dev crews with token check and context store.
+
+Team Lead and Dev use GitHub-only pre-checks before invoking Claude.
+QA is disabled (automation infra to be added later).
+"""
 
 import logging
 
 from ai_army.config import get_github_repos
 from ai_army.crews.dev_crew import DevCrew
 from ai_army.crews.product_crew import ProductCrew
-from ai_army.crews.qa_crew import QACrew
 from ai_army.crews.team_lead_crew import TeamLeadCrew
 from ai_army.memory.context_store import get_context_store
 from ai_army.scheduler.token_check import run_if_tokens_available
+from ai_army.tools.github_helpers import count_issues_for_dev, count_issues_ready_for_breakdown
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +59,18 @@ def run_product_crew_job() -> None:
 
 
 def run_team_lead_crew_job() -> None:
-    """Run Team Lead Crew: break down ready-for-breakdown issues into sub-issues (frontend/backend/fullstack)."""
+    """Run Team Lead Crew: break down ready-for-breakdown issues into sub-issues (frontend/backend/fullstack).
+    Uses GitHub-only pre-check: skip Claude if no issues need breaking down."""
     repos = get_github_repos()
     if not repos:
         logger.warning("No GitHub repos configured, skipping job")
+        return
+
+    # GitHub-only pre-check: no Claude if no work
+    count = count_issues_ready_for_breakdown(repos[0])
+    if count == 0:
+        logger.info("Team Lead Crew: no issues ready-for-breakdown (without broken-down), skipping")
+        _log_next_run("team_lead_crew")
         return
 
     def _run() -> None:
@@ -67,7 +79,7 @@ def run_team_lead_crew_job() -> None:
         crew_context = store.get_summary(exclude="team_lead")
         logger.info("Team Lead Crew: context from previous crews (%d chars)", len(crew_context))
         try:
-            logger.info("Team Lead Crew starting")
+            logger.info("Team Lead Crew starting (%d issues to break down)", count)
             result = TeamLeadCrew.kickoff(crew_context=crew_context)
             store.add("team_lead", result)
             logger.info("Team Lead Crew done successfully")
@@ -79,7 +91,20 @@ def run_team_lead_crew_job() -> None:
 
 
 def run_dev_crew_job(agent_type: str) -> None:
-    """Run Dev Crew for one agent type (frontend, backend, fullstack). Picks issues with matching label, not in-progress/in-review."""
+    """Run Dev Crew for one agent type (frontend, backend, fullstack). Picks issues with matching label, not in-progress/in-review.
+    Uses GitHub-only pre-check: skip Claude if no issues available for this agent type."""
+
+    repos = get_github_repos()
+    if not repos:
+        logger.warning("No GitHub repos configured, skipping job")
+        return
+
+    # GitHub-only pre-check: no Claude if no work
+    count = count_issues_for_dev(repos[0], agent_type)
+    if count == 0:
+        logger.info("Dev Crew (%s): no available issues (without in-progress/in-review), skipping", agent_type)
+        _log_next_run(f"dev_crew_{agent_type}")
+        return
 
     def _run() -> None:
         store = get_context_store()
@@ -87,7 +112,7 @@ def run_dev_crew_job(agent_type: str) -> None:
         crew_context = store.get_summary(exclude="dev")
         logger.info("Dev Crew (%s): context from previous crews (%d chars)", agent_type, len(crew_context))
         try:
-            logger.info("Dev Crew (%s) starting", agent_type)
+            logger.info("Dev Crew (%s) starting (%d issues available)", agent_type, count)
             result = DevCrew.kickoff(agent_type=agent_type, crew_context=crew_context)
             store.add("dev", result)
             logger.info("Dev Crew (%s) done successfully", agent_type)
@@ -98,25 +123,5 @@ def run_dev_crew_job(agent_type: str) -> None:
     run_if_tokens_available(_run)
 
 
-def run_qa_crew_job() -> None:
-    """Run QA Crew: review PRs, merge when approved, set issues to done."""
-    repos = get_github_repos()
-    if not repos:
-        logger.warning("No GitHub repos configured, skipping job")
-        return
-
-    def _run() -> None:
-        store = get_context_store()
-        store.load()
-        crew_context = store.get_summary(exclude="qa")
-        logger.info("QA Crew: context from previous crews (%d chars)", len(crew_context))
-        try:
-            logger.info("QA Crew starting")
-            result = QACrew.kickoff(crew_context=crew_context)
-            store.add("qa", result)
-            logger.info("QA Crew done successfully")
-        except Exception as e:
-            logger.exception("QA Crew failed: %s", e)
-        _log_next_run("qa_crew")
-
-    run_if_tokens_available(_run)
+# QA Crew disabled - automation infra to be added later
+# def run_qa_crew_job() -> None: ...
