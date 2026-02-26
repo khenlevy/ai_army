@@ -162,10 +162,10 @@ def create_product_crew(
             "Your work must align with the Product Overview and Product Goal below."
             + overview_block
             + goal_block
-            + "\n\nFor each issue with the 'prioritized' label, enrich it with acceptance criteria and technical specs. "
-            "Use List Open GitHub Issues filtered by 'prioritized'. Use Enrich GitHub Issue with the issue number "
-            "to add structured acceptance criteria and set the 'ready-for-breakdown' label. "
-            "Ensure each issue is clear enough for the Team Lead to break down into sub-tasks."
+            + "\n\nFor each issue with the 'prioritized' label that does NOT yet have 'ready-for-breakdown', enrich it. "
+            "Use List Open GitHub Issues filtered by 'prioritized'. SKIP issues that already have 'ready-for-breakdown' "
+            "(do not re-enrich; that creates duplicate comments). Use Enrich GitHub Issue only for prioritized issues "
+            "missing ready-for-breakdown. Ensure each enriched issue is clear enough for the Team Lead to break down."
         ),
         expected_output="Summary of issues enriched and marked ready-for-breakdown.",
         agent=product_agent,

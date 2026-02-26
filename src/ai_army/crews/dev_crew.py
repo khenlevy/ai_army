@@ -146,11 +146,12 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
 
     impl_task = Task(
         description=(
-            "Execute the plan. FIRST: Use Update GitHub Issue to add 'in-progress' to the chosen issue (claims it, prevents other agents from picking it). "
+            "Execute the plan. FIRST: Use Update GitHub Issue to add 'in-progress' to the chosen issue (labels only; do NOT add comments). "
             "Then: Create Local Branch. Use Search Codebase (RAG semantic search) with your planned query or issue number to find relevant code "
             "before exploring. Use Repo Structure, List Directory, Read File, Write File to implement. "
             "Make multiple Git Commits as you go. When done: Git Push, Create Pull Request with 'Closes #N', "
-            "and Update GitHub Issue to remove 'in-progress' and add 'in-review'. If no available issues exist, report that."
+            "and Update GitHub Issue to remove 'in-progress' and add 'in-review' (labels only; do NOT add comments). "
+            "Your work is the code and PR—do not add comments to issues. If no available issues exist, report that."
         ),
         expected_output="Summary: issue claimed (in-progress), implementation done, branch pushed, PR opened, issue set to in-review.",
         agent=agent,

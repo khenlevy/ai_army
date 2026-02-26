@@ -165,7 +165,7 @@ Provide feedback_points (file, line, comment) for any issues. Prefer merging whe
             update_tool = UpdateIssueTool(repo_config=self._repo_config)
             result = update_tool._run(
                 issue_number=issue_num,
-                comment=f"PR #{pr_number} feedback:\n\n{comment}",
+                comment=f"[QA Agent]\n\nPR #{pr_number} feedback:\n\n{comment}",
             )
             logger.info("ReviewPullRequestTool: added feedback to issue #%s for PR #%s", issue_num, pr_number)
             return result

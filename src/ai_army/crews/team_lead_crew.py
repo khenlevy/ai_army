@@ -58,11 +58,11 @@ def create_team_lead_crew(crew_context: str = "") -> Crew:
     breakdown_task = Task(
         description=(
             crew_context_block
-            + "List open issues with the 'ready-for-breakdown' label using List Open GitHub Issues. "
-            "For each feature issue, use Break Down and Create Sub-Issues with the parent issue number. "
+            +             "List open issues with the 'ready-for-breakdown' label using List Open GitHub Issues. "
+            "SKIP issues that already have the 'broken-down' label (do not re-break-down; that creates duplicates). "
+            "For each ready-for-breakdown issue that is NOT yet broken-down, use Break Down and Create Sub-Issues. "
             "The tool will produce structured sub-tasks (frontend, backend, fullstack) and create "
-            "GitHub issues with proper labels and parent linking. "
-            "Ensure you process each ready-for-breakdown issue."
+            "GitHub issues with proper labels and parent linking."
         ),
         expected_output="Summary of features broken down and sub-issues created with their labels.",
         agent=team_lead,

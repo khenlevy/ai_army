@@ -157,6 +157,10 @@ class EnrichIssueTool(BaseTool):
         repo = _get_repo_from_config(self._repo_config)
         try:
             issue = repo.get_issue(issue_number)
+            label_names = [l.name for l in (issue.labels or [])]
+            if "ready-for-breakdown" in label_names:
+                logger.info("EnrichIssueTool: issue #%s already has ready-for-breakdown, skipping", issue_number)
+                return f"Issue #{issue_number} is already enriched (has 'ready-for-breakdown' label). Skipping."
             issue_title = issue.title
             issue_body = issue.body or ""
         except Exception as e:
@@ -186,9 +190,9 @@ Produce acceptance_criteria (list of clear, testable criteria) and technical_not
             logger.exception("EnrichIssueTool chain failed: %s", e)
             return f"Error producing enrichment: {e}"
 
-        comment_parts = []
+        comment_parts = ["[Product Agent]"]
         if spec.acceptance_criteria:
-            comment_parts.append("## Acceptance Criteria")
+            comment_parts.append("\n## Acceptance Criteria")
             for ac in spec.acceptance_criteria:
                 comment_parts.append(f"- {ac}")
         if spec.technical_notes:
@@ -236,6 +240,10 @@ class BreakdownAndCreateSubIssuesTool(BaseTool):
         repo = _get_repo_from_config(self._repo_config)
         try:
             parent = repo.get_issue(parent_issue_number)
+            label_names = [l.name for l in (parent.labels or [])]
+            if "broken-down" in label_names:
+                logger.info("BreakdownAndCreateSubIssuesTool: issue #%s already has broken-down, skipping", parent_issue_number)
+                return f"Issue #{parent_issue_number} is already broken down (has 'broken-down' label). Skipping."
             issue_title = parent.title
             issue_body = parent.body or ""
         except Exception as e:
@@ -293,7 +301,7 @@ Set parent_issue to {parent_issue_number}."""
             )
         else:
             sub_list = "\n".join(f"- {st.title} ({st.label})" for st in spec.sub_tasks)
-        comment = f"Broken down into sub-tasks:\n{sub_list}"
+        comment = f"[Team Lead]\n\nBroken down into sub-tasks:\n{sub_list}"
         update_tool._run(
             issue_number=parent_issue_number,
             comment=comment,
