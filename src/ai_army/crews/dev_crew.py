@@ -134,7 +134,7 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
         description=(
             crew_context_block
             + f"Use List Open GitHub Issues with labels=['{label_filter}'] to find broken-down sub-issues. "
-            "Filter the results: pick ONLY issues that do NOT have 'in-progress' or 'in-review' (those are claimed or done). "
+            "Filter the results: pick ONLY issues that do NOT have 'in-progress', 'in-review', 'awaiting-review', or 'awaiting-merge' (those are claimed or done). "
             "Pick one available issue to work on. Analyze it and output your implementation plan: "
             "(1) Search query you will use to find relevant code, (2) Files/directories you expect to explore, "
             "(3) Changes you plan to make, (4) Branch name (e.g. feature/issue-N-description), (5) Commit strategy. "
@@ -150,10 +150,11 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
             "Then: Create Local Branch. Use Search Codebase (RAG semantic search) with your planned query or issue number to find relevant code "
             "before exploring. Use Repo Structure, List Directory, Read File, Write File to implement. "
             "Make multiple Git Commits as you go. When done: Git Push, Create Pull Request with 'Closes #N', "
-            "and Update GitHub Issue to remove 'in-progress' and add 'in-review' (labels only; do NOT add comments). "
-            "Your work is the code and PR—do not add comments to issues. If no available issues exist, report that."
+            "and Update GitHub Issue to remove 'in-progress' and add 'in-review', 'awaiting-review', 'awaiting-merge' (labels only; do NOT add comments). "
+            "The PR must be created—your work is complete only when the PR exists and the issue has awaiting-review and awaiting-merge. "
+            "If no available issues exist, report that."
         ),
-        expected_output="Summary: issue claimed (in-progress), implementation done, branch pushed, PR opened, issue set to in-review.",
+        expected_output="Summary: issue claimed (in-progress), implementation done, branch pushed, PR opened, issue set to in-review, awaiting-review, awaiting-merge.",
         agent=agent,
         context=[think_task],
     )

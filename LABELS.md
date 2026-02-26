@@ -3,7 +3,7 @@
 ## Lifecycle
 
 ```
-backlog → prioritized → ready-for-breakdown → broken-down → frontend/backend/fullstack → in-progress → in-review → done
+backlog → prioritized → ready-for-breakdown → broken-down → frontend/backend/fullstack → in-progress → in-review → awaiting-review → awaiting-merge → done
 ```
 
 Create these labels in your GitHub repo before use.
@@ -14,8 +14,8 @@ Create these labels in your GitHub repo before use.
 |------|----------|------|
 | **Product** | (all open issues) | backlog, prioritized; EnrichIssue adds ready-for-breakdown |
 | **Team Lead** | ready-for-breakdown | broken-down (parent), frontend/backend/fullstack (sub-issues) |
-| **Dev** | frontend, backend, or fullstack (excludes in-progress, in-review) | in-progress (when claiming), in-review (when PR opened) |
-| **QA** | (via PR review) | done (when PR merged) |
+| **Dev** | frontend, backend, or fullstack (excludes in-progress, in-review) | in-progress (when claiming), in-review, awaiting-review, awaiting-merge (when PR opened) |
+| **QA** | (via PR review) | done (when PR merged). Disabled; merge manually for now. |
 
 ## Sub-Issue Linking
 

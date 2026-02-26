@@ -34,7 +34,7 @@ def run_product_crew():
         logger.info("Product Crew: using context from previous crews (%d chars)", len(crew_context))
     logger.info("Starting Product Crew (PM + Product Agent)")
     result = ProductCrew.kickoff(crew_context=crew_context)
-    store.add("product", result)
+    store.add("product", str(result))
     logger.info("Product Crew finished (result len=%d)", len(str(result)))
     return result
 
@@ -51,7 +51,7 @@ def run_team_lead_crew():
         logger.info("Team Lead Crew: using context from previous crews (%d chars)", len(crew_context))
     logger.info("Starting Team Lead Crew")
     result = TeamLeadCrew.kickoff(crew_context=crew_context)
-    store.add("team_lead", result)
+    store.add("team_lead", str(result))
     logger.info("Team Lead Crew finished (result len=%d)", len(str(result)))
     return result
 
@@ -68,7 +68,7 @@ def run_dev_crew(agent_type: str):
         logger.info("Dev Crew: using context from previous crews (%d chars)", len(crew_context))
     logger.info("Starting Dev Crew (agent: %s)", agent_type)
     result = DevCrew.kickoff(agent_type=agent_type, crew_context=crew_context)
-    store.add("dev", result)
+    store.add("dev", str(result))
     logger.info("Dev Crew finished (result len=%d)", len(str(result)))
     return result
 
@@ -85,7 +85,7 @@ def run_qa_crew():
         logger.info("QA Crew: using context from previous crews (%d chars)", len(crew_context))
     logger.info("Starting QA Crew")
     result = QACrew.kickoff(crew_context=crew_context)
-    store.add("qa", result)
+    store.add("qa", str(result))
     logger.info("QA Crew finished (result len=%d)", len(str(result)))
     return result
 

@@ -75,7 +75,8 @@ def count_issues_for_dev(
     repo_config: GitHubRepoConfig | None = None,
     agent_type: str = "frontend",
 ) -> int:
-    """Count open issues with agent_type label that do NOT have in-progress or in-review. GitHub API only."""
+    """Count open issues with agent_type label that do NOT have in-progress, in-review, awaiting-review, or awaiting-merge. GitHub API only."""
+    skip_labels = {"in-progress", "in-review", "awaiting-review", "awaiting-merge"}
     try:
         repo = _get_repo_from_config(repo_config)
         issues = list(repo.get_issues(state="open", labels=[agent_type]))
@@ -84,7 +85,7 @@ def count_issues_for_dev(
             if i.pull_request:
                 continue
             label_names = {l.name for l in (i.labels or [])}
-            if "in-progress" in label_names or "in-review" in label_names:
+            if skip_labels & label_names:
                 continue
             count += 1
         return count

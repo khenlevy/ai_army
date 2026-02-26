@@ -49,7 +49,7 @@ def run_product_crew_job() -> None:
             try:
                 logger.info("Product Crew starting | repo: %s", repo_config.repo)
                 result = ProductCrew.kickoff(repo_config=repo_config, crew_context=crew_context)
-                store.add("product", result)
+                store.add("product", str(result))
                 logger.info("Product Crew done successfully | repo: %s", repo_config.repo)
             except Exception as e:
                 logger.exception("Product Crew failed | repo: %s | %s", repo_config.repo, e)
@@ -81,7 +81,7 @@ def run_team_lead_crew_job() -> None:
         try:
             logger.info("Team Lead Crew starting (%d issues to break down)", count)
             result = TeamLeadCrew.kickoff(crew_context=crew_context)
-            store.add("team_lead", result)
+            store.add("team_lead", str(result))
             logger.info("Team Lead Crew done successfully")
         except Exception as e:
             logger.exception("Team Lead Crew failed: %s", e)
@@ -114,7 +114,7 @@ def run_dev_crew_job(agent_type: str) -> None:
         try:
             logger.info("Dev Crew (%s) starting (%d issues available)", agent_type, count)
             result = DevCrew.kickoff(agent_type=agent_type, crew_context=crew_context)
-            store.add("dev", result)
+            store.add("dev", str(result))
             logger.info("Dev Crew (%s) done successfully", agent_type)
         except Exception as e:
             logger.exception("Dev Crew (%s) failed: %s", agent_type, e)

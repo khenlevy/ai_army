@@ -1,6 +1,7 @@
 # AI-Army Agent Configurations
 # Lifecycle labels: backlog, prioritized, ready-for-breakdown, broken-down,
-#                  frontend, backend, fullstack, in-progress, in-review, done
+#                  frontend, backend, fullstack, in-progress, in-review,
+#                  awaiting-review, awaiting-merge, done
 
 product_manager:
   role: Product Manager

@@ -59,11 +59,12 @@ class ContextStore:
         except Exception as e:
             logger.warning("ContextStore: could not save to %s: %s", self._path, e)
 
-    def add(self, crew_name: str, summary: str) -> None:
-        """Add or update summary for a crew."""
-        self._data[crew_name] = summary
+    def add(self, crew_name: str, summary: str | object) -> None:
+        """Add or update summary for a crew. Accepts str or CrewOutput; converts to str."""
+        text = str(summary) if not isinstance(summary, str) else summary
+        self._data[crew_name] = text
         self.save()
-        logger.info("ContextStore: added/updated context for crew=%s (summary len=%d)", crew_name, len(summary))
+        logger.info("ContextStore: added/updated context for crew=%s (summary len=%d)", crew_name, len(text))
 
     def get(self, crew_name: str) -> str:
         """Get summary for a crew."""
