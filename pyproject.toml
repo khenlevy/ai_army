@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ai-army"
-version = "0.1.20"
+version = "0.1.21"
 description = "AI-Army: Multi-agent orchestration with CrewAI for GitHub-driven development workflow"
 readme = "README.md"
 authors = ["AI-Army Contributors"]
