@@ -12,7 +12,11 @@ from ai_army.crews.product_crew import ProductCrew
 from ai_army.crews.team_lead_crew import TeamLeadCrew
 from ai_army.memory.context_store import get_context_store
 from ai_army.scheduler.token_check import run_if_tokens_available
-from ai_army.tools.github_helpers import count_issues_for_dev, count_issues_ready_for_breakdown
+from ai_army.tools.github_helpers import (
+    count_issues_for_dev,
+    count_issues_ready_for_breakdown,
+    list_issues_for_dev,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +113,15 @@ def run_dev_crew_job(agent_type: str) -> None:
     def _run() -> None:
         store = get_context_store()
         store.load()
-        crew_context = store.get_summary(exclude="dev")
+        in_progress_count = sum(
+            1 for _, _, is_in_progress in list_issues_for_dev(repos[0], agent_type)
+            if is_in_progress
+        )
+        crew_context = (
+            store.get_summary(exclude=None)
+            if in_progress_count > 0
+            else store.get_summary(exclude="dev")
+        )
         logger.info("Dev Crew (%s): context from previous crews (%d chars)", agent_type, len(crew_context))
         try:
             logger.info("Dev Crew (%s) starting (%d issues available)", agent_type, count)

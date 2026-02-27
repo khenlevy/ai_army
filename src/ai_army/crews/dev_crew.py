@@ -14,9 +14,12 @@ from crewai import LLM
 from ai_army.config.settings import get_github_repos
 from ai_army.config.settings import GitHubRepoConfig
 from ai_army.repo_clone import ensure_repo_cloned
+from ai_army.dev_context import build_branch_context
 from ai_army.tools import (
+    CheckoutBranchTool,
     CreateLocalBranchTool,
     CreatePullRequestTool,
+    GitBranchStatusTool,
     GitCommitTool,
     GitPushTool,
     ListDirTool,
@@ -82,6 +85,8 @@ def _create_dev_agent(
             SearchCodebaseTool(repo_path=repo_path, repo_config=repo_config),
             WriteFileTool(repo_path=repo_path),
             ListOpenIssuesTool(repo_config=repo_config),
+            GitBranchStatusTool(repo_path=repo_path),
+            CheckoutBranchTool(repo_path=repo_path),
             CreateLocalBranchTool(repo_path=repo_path),
             GitCommitTool(repo_path=repo_path),
             GitPushTool(repo_path=repo_path),
@@ -129,11 +134,18 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
         repo_config=repo_config,
     )
 
-    crew_context_block = (
-        f"\n\n--- Context from previous crews ---\n{crew_context}\n---\n\n"
-        if crew_context.strip()
-        else "\n\n"
+    branch_context = (
+        build_branch_context(repo_config, clone_path, agent_type)
+        if repo_config and clone_path
+        else ""
     )
+    crew_context_block = ""
+    if branch_context:
+        crew_context_block = branch_context + "\n"
+    if crew_context.strip():
+        crew_context_block += f"\n--- Context from previous crews ---\n{crew_context}\n---\n\n"
+    if not crew_context_block.strip():
+        crew_context_block = "\n"
 
     # ReAct-style: Think task first - plan before acting
     # Label filter ensures no overlap: frontend agent only sees frontend, backend only backend, fullstack only fullstack
@@ -141,8 +153,9 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
         description=(
             crew_context_block
             + f"Use List Open GitHub Issues with labels=['{label_filter}'] to find broken-down sub-issues. "
-            "Filter the results: pick ONLY issues that do NOT have 'in-progress', 'in-review', 'awaiting-review', or 'awaiting-merge' (those are claimed or done). "
-            "Pick one available issue to work on. Analyze it and output your implementation plan: "
+            "Pick issues that are either (a) available (no in-progress/in-review/awaiting-*) OR (b) in-progress with no PR yet (continue existing work). "
+            "If In-progress work is listed in context above, prefer continuing that branch; use Git Branch Status to see what's done. "
+            "Pick one issue to work on. Analyze it and output your implementation plan: "
             "(1) Search query you will use to find relevant code, (2) Files/directories you expect to explore, "
             "(3) Changes you plan to make, (4) Branch name (e.g. feature/issue-N-description), (5) Commit strategy. "
             "Do NOT create a branch, search, read, or edit files yet. Only list issues and output the plan."
@@ -153,8 +166,9 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
 
     impl_task = Task(
         description=(
-            "Execute the plan. FIRST: Use Update GitHub Issue to add 'in-progress' to the chosen issue (labels only; do NOT add comments). "
-            "Then: Create Local Branch. Use Search Codebase (RAG semantic search) with your planned query or issue number to find relevant code "
+            "Execute the plan. If continuing an existing branch: use Checkout Branch first (do NOT use Create Local Branch for existing branches). "
+            "For new work: FIRST use Update GitHub Issue to add 'in-progress' to the chosen issue (labels only; do NOT add comments), "
+            "then Create Local Branch. Use Search Codebase (RAG semantic search) with your planned query or issue number to find relevant code "
             "before exploring. Use Repo Structure, List Directory, Read File, Write File to implement. "
             "Make multiple Git Commits as you go. When done: Git Push, Create Pull Request with 'Closes #N', "
             "and Update GitHub Issue to remove 'in-progress' and add 'in-review', 'awaiting-review', 'awaiting-merge' (labels only; do NOT add comments). "

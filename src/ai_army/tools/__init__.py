@@ -22,6 +22,10 @@ from ai_army.tools.github_tools import (
     UpdateIssueTool,
     create_github_tools,
 )
+from ai_army.tools.git_branch_tools import (
+    CheckoutBranchTool,
+    GitBranchStatusTool,
+)
 from ai_army.tools.git_tools import (
     CreateLocalBranchTool,
     GitCommitTool,
@@ -49,7 +53,9 @@ __all__ = [
     "ReviewPullRequestTool",
     "CreateBranchTool",
     "create_github_tools",
+    "CheckoutBranchTool",
     "CreateLocalBranchTool",
+    "GitBranchStatusTool",
     "GitCommitTool",
     "GitPushTool",
     "ListDirTool",

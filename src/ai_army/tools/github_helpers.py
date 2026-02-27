@@ -1,6 +1,7 @@
 """Shared helpers for GitHub API (repo resolution, README, issue count, connection check)."""
 
 import logging
+import re
 
 from github import Auth, Github
 
@@ -71,12 +72,39 @@ def count_issues_ready_for_breakdown(repo_config: GitHubRepoConfig | None = None
         return 0
 
 
+def _issue_linked_in_pr_body(pr_body: str | None, issue_number: int) -> bool:
+    """Check if PR body contains Closes #N or Fixes #N for the given issue."""
+    if not pr_body:
+        return False
+    for match in re.finditer(r"(?:Closes|Fixes)\s*#(\d+)", pr_body, re.IGNORECASE):
+        if int(match.group(1)) == issue_number:
+            return True
+    return False
+
+
+def issue_has_open_pr(repo, issue_number: int) -> bool:
+    """Check if any open PR references this issue via Closes #N or Fixes #N."""
+    try:
+        for pr in repo.get_pulls(state="open"):
+            if _issue_linked_in_pr_body(pr.body, issue_number):
+                return True
+        return False
+    except Exception as e:
+        logger.warning("issue_has_open_pr(%s) failed: %s", issue_number, e)
+        return False
+
+
 def count_issues_for_dev(
     repo_config: GitHubRepoConfig | None = None,
     agent_type: str = "frontend",
 ) -> int:
-    """Count open issues with agent_type label that do NOT have in-progress, in-review, awaiting-review, or awaiting-merge. GitHub API only."""
-    skip_labels = {"in-progress", "in-review", "awaiting-review", "awaiting-merge"}
+    """Count open issues with agent_type label that Dev can work on.
+
+    Includes: (a) fresh issues (no in-progress/in-review/awaiting-*), (b) in-progress
+    issues with no open PR yet (continue existing work).
+    Excludes: in-review, awaiting-review, awaiting-merge (PR exists).
+    """
+    skip_labels = {"in-review", "awaiting-review", "awaiting-merge"}
     try:
         repo = _get_repo_from_config(repo_config)
         issues = list(repo.get_issues(state="open", labels=[agent_type]))
@@ -87,11 +115,45 @@ def count_issues_for_dev(
             label_names = {l.name for l in (i.labels or [])}
             if skip_labels & label_names:
                 continue
+            if "in-progress" in label_names:
+                if issue_has_open_pr(repo, i.number):
+                    continue
             count += 1
         return count
     except Exception as e:
         logger.warning("count_issues_for_dev(%s) failed: %s", agent_type, e)
         return 0
+
+
+def list_issues_for_dev(
+    repo_config: GitHubRepoConfig | None = None,
+    agent_type: str = "frontend",
+) -> list[tuple[int, str, bool]]:
+    """List issues Dev can work on: (issue_number, title, is_in_progress).
+
+    Same inclusion logic as count_issues_for_dev. Used for pre-run branch context.
+    """
+    skip_labels = {"in-review", "awaiting-review", "awaiting-merge"}
+    result: list[tuple[int, str, bool]] = []
+    try:
+        repo = _get_repo_from_config(repo_config)
+        issues = list(repo.get_issues(state="open", labels=[agent_type]))
+        for i in issues:
+            if i.pull_request:
+                continue
+            label_names = {l.name for l in (i.labels or [])}
+            if skip_labels & label_names:
+                continue
+            if "in-progress" in label_names:
+                if issue_has_open_pr(repo, i.number):
+                    continue
+                result.append((i.number, i.title or "", True))
+            else:
+                result.append((i.number, i.title or "", False))
+        return result
+    except Exception as e:
+        logger.warning("list_issues_for_dev(%s) failed: %s", agent_type, e)
+        return []
 
 
 def check_github_connection_and_log(
