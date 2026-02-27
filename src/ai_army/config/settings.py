@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
 
     # LLM model for all crews and chains. Switch here or via LLM_MODEL env.
-    # Examples: claude-3-5-haiku-20241022, claude-3-5-sonnet-20241022, claude-sonnet-4-6
-    llm_model: str = "claude-3-5-haiku-20241022"
+    # claude-3-5-haiku-20241022 was deprecated 2026-02-19. Use claude-haiku-4-5.
+    llm_model: str = "claude-haiku-4-5"
 
     # Single repo (backward compat)
     github_target_token: str = ""

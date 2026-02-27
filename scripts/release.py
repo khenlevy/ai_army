@@ -294,10 +294,10 @@ def main() -> int:
     if args.dry_run:
         print(f"  [dry-run] ssh {SSH_HOST} run pre-deploy-cleanup, docker load, docker run", flush=True)
     else:
-        # Run pre-deploy-cleanup (frees disk if low)
+        # Run pre-deploy-cleanup (frees disk if low, removes old tars)
         cleanup_script = (SCRIPT_DIR / "pre-deploy-cleanup.sh").read_text()
         proc = subprocess.Popen(
-            ["ssh", SSH_HOST, "bash -s"],
+            ["ssh", SSH_HOST, f"RELEASE_APP_PATH={app_path} bash -s"],
             stdin=subprocess.PIPE,
             text=True,
             stdout=sys.stdout,

@@ -5,10 +5,19 @@
 set -e
 
 MIN_AVAIL_KB=$((5 * 1024 * 1024))  # 5GB (pull needs ~2-3GB)
+APP_PATH="${RELEASE_APP_PATH:-/root/ai_army}"
 
 avail_kb() {
   df -k / | tail -1 | awk '{print $4}'
 }
+
+# Remove old release tars; keep only current + previous (for rollback). Each tar ~1.5GB.
+cd "$APP_PATH" 2>/dev/null || true
+if [ -d "$APP_PATH" ]; then
+  for f in $(ls -t ai-army-*.tar.gz 2>/dev/null | tail -n +3); do
+    rm -f "$f" && echo "Removed old tar: $f"
+  done
+fi
 
 AVAIL_KB=$(avail_kb)
 if [ "$AVAIL_KB" -lt "$MIN_AVAIL_KB" ]; then
