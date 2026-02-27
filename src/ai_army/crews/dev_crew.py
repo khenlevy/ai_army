@@ -39,9 +39,16 @@ def _load_agents_config() -> dict:
 
 
 def _get_llm() -> LLM:
-    """Get Anthropic Claude LLM."""
+    """Get Anthropic Claude LLM.
+
+    Uses claude-3-5-sonnet-20241022 instead of claude-sonnet-4-6 because Claude 4.6
+    removed assistant message prefill support. CrewAI's tool-use flow can send
+    messages ending with assistant content, causing: "This model does not support
+    assistant message prefill. The conversation must end with a user message."
+    See: https://blog.laozhang.ai/en/posts/claude-opus-prefill-error-fix
+    """
     return LLM(
-        model="anthropic/claude-sonnet-4-6",
+        model="anthropic/claude-3-5-sonnet-20241022",
         temperature=0.3,
     )
 
