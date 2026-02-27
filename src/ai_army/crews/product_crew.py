@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from crewai import Agent, Crew, LLM, Process, Task
 
+from ai_army.config.llm_config import get_llm_model_crewai
 from ai_army.tools import (
     CreateStructuredIssueTool,
     EnrichIssueTool,
@@ -54,9 +55,9 @@ def _load_product_context() -> dict[str, str]:
 
 
 def _get_llm() -> LLM:
-    """Get Anthropic Claude LLM."""
+    """Get Anthropic Claude LLM. Model from config (LLM_MODEL env or settings)."""
     return LLM(
-        model="anthropic/claude-sonnet-4-6",
+        model=get_llm_model_crewai(),
         temperature=0.3,
     )
 

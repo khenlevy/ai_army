@@ -11,6 +11,7 @@ import yaml
 from crewai import Agent, Crew, Process, Task
 from crewai import LLM
 
+from ai_army.config.llm_config import get_llm_model_crewai
 from ai_army.config.settings import get_github_repos
 from ai_army.config.settings import GitHubRepoConfig
 from ai_army.repo_clone import ensure_repo_cloned
@@ -42,16 +43,9 @@ def _load_agents_config() -> dict:
 
 
 def _get_llm() -> LLM:
-    """Get Anthropic Claude LLM.
-
-    Uses claude-3-5-sonnet-20241022 instead of claude-sonnet-4-6 because Claude 4.6
-    removed assistant message prefill support. CrewAI's tool-use flow can send
-    messages ending with assistant content, causing: "This model does not support
-    assistant message prefill. The conversation must end with a user message."
-    See: https://blog.laozhang.ai/en/posts/claude-opus-prefill-error-fix
-    """
+    """Get Anthropic Claude LLM. Model from config (LLM_MODEL env or settings)."""
     return LLM(
-        model="anthropic/claude-3-5-sonnet-20241022",
+        model=get_llm_model_crewai(),
         temperature=0.3,
     )
 

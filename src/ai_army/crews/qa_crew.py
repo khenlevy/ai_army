@@ -7,6 +7,7 @@ import yaml
 from crewai import Agent, Crew, Process, Task
 from crewai import LLM
 
+from ai_army.config.llm_config import get_llm_model_crewai
 from ai_army.tools import (
     ListPullRequestsTool,
     ReviewPullRequestTool,
@@ -24,9 +25,9 @@ def _load_agents_config() -> dict:
 
 
 def _get_llm() -> LLM:
-    """Get Anthropic Claude LLM."""
+    """Get Anthropic Claude LLM. Model from config (LLM_MODEL env or settings)."""
     return LLM(
-        model="anthropic/claude-sonnet-4-6",
+        model=get_llm_model_crewai(),
         temperature=0.2,
     )
 

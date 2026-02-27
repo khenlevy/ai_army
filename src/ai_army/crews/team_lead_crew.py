@@ -24,9 +24,9 @@ def _load_agents_config() -> dict:
 
 
 def _get_llm() -> LLM:
-    """Get Anthropic Claude LLM."""
+    """Get Anthropic Claude LLM. Model from config (LLM_MODEL env or settings)."""
     return LLM(
-        model="anthropic/claude-sonnet-4-6",
+        model=get_llm_model_crewai(),
         temperature=0.3,
     )
 

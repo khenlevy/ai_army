@@ -7,6 +7,8 @@ Uses count_tokens (zero cost) when available, falls back to minimal completion.
 import logging
 from typing import Callable
 
+from ai_army.config.llm_config import get_llm_model
+
 logger = logging.getLogger(__name__)
 
 RATE_LIMIT_STATUS = 429
@@ -22,16 +24,17 @@ def has_available_tokens() -> bool:
         import anthropic
 
         client = anthropic.Anthropic()
+        model = get_llm_model()
         # Prefer count_tokens - zero cost, verifies API is reachable
         if hasattr(client.messages, "count_tokens"):
             client.messages.count_tokens(
-                model="claude-sonnet-4-6",
+                model=model,
                 messages=[{"role": "user", "content": "Hi"}],
             )
         else:
             # Fallback: minimal completion
             client.messages.create(
-                model="claude-sonnet-4-6",
+                model=model,
                 max_tokens=1,
                 messages=[{"role": "user", "content": "Hi"}],
             )
