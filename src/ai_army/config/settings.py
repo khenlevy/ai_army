@@ -30,9 +30,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str | None = None
 
-    # LLM model for all crews and chains. Switch here or via LLM_MODEL env.
-    # claude-3-5-haiku-20241022 was deprecated 2026-02-19. Use claude-haiku-4-5.
-    llm_model: str = "claude-haiku-4-5"
+    # Anthropic Claude model for all crews and chains. ANTHROPIC_LLM_MODEL env.
+    # claude-3-5-haiku-20241022 deprecated 2026-02-19. Use claude-haiku-4-5.
+    anthropic_llm_model: str = "claude-haiku-4-5"
 
     # Single repo (backward compat)
     github_target_token: str = ""
