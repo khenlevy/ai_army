@@ -84,6 +84,7 @@ class SearchCodebaseTool(BaseTool):
             logger.warning("SearchCodebaseTool: no query provided")
             return "Provide a query or issue_number to search."
 
+        logger.info("SearchCodebaseTool: searching repo=%s issue=%s query_len=%d", root.name, issue_number, len(search_query))
         results = search(root, search_query, top_k=max_results)
         if not results:
             logger.info("SearchCodebaseTool: no results for query (len=%d)", len(search_query))

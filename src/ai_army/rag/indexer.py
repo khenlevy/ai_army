@@ -3,6 +3,7 @@
 import json
 import logging
 import subprocess
+import time
 from pathlib import Path
 
 import chromadb
@@ -47,6 +48,7 @@ def _get_head_commit(repo_path: Path) -> str | None:
 
 def build_index(repo_path: Path) -> Path:
     """Build ChromaDB index for the repo. Returns index directory path."""
+    t0 = time.monotonic()
     repo_path = Path(repo_path).resolve()
     if not (repo_path / ".git").exists():
         logger.error("build_index: %s is not a git repo", repo_path)
@@ -54,8 +56,12 @@ def build_index(repo_path: Path) -> Path:
 
     index_dir = _index_dir_for_repo(repo_path)
     index_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("rag.index: starting build for %s -> %s", repo_path.name, index_dir)
 
+    t_load = time.monotonic()
     model = SentenceTransformer(settings.rag_embedding_model)
+    logger.info("rag.index: loaded model %s (%.1fs)", settings.rag_embedding_model, time.monotonic() - t_load)
+
     client = chromadb.PersistentClient(path=str(index_dir))
     collection = client.get_or_create_collection(
         COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
@@ -63,10 +69,12 @@ def build_index(repo_path: Path) -> Path:
     existing = collection.get()
     if existing["ids"]:
         collection.delete(existing["ids"])
+        logger.info("rag.index: cleared %d existing chunks", len(existing["ids"]))
 
     texts: list[str] = []
     metadatas: list[dict] = []
     ids: list[str] = []
+    files_scanned = 0
 
     for fpath in repo_path.rglob("*"):
         if not fpath.is_file():
@@ -74,6 +82,9 @@ def build_index(repo_path: Path) -> Path:
         rel = fpath.relative_to(repo_path)
         if not should_index_path(rel):
             continue
+        files_scanned += 1
+        if files_scanned % 50 == 0:
+            logger.info("rag.index: scanned %d files, %d chunks so far", files_scanned, len(texts))
         try:
             content = fpath.read_text(encoding="utf-8", errors="replace")
         except Exception as e:
@@ -92,15 +103,22 @@ def build_index(repo_path: Path) -> Path:
             )
             ids.append(chunk_id)
 
+    logger.info("rag.index: chunking done — %d files, %d chunks (%.1fs)", files_scanned, len(texts), time.monotonic() - t0)
+
     if not texts:
         logger.warning("build_index: no indexable files found in %s", repo_path)
     else:
+        t_embed = time.monotonic()
+        logger.info("rag.index: encoding %d chunks (CPU, may take 1–5 min)...", len(texts))
         embeddings = model.encode(texts, show_progress_bar=False)
+        logger.info("rag.index: encoding done (%.1fs)", time.monotonic() - t_embed)
+        t_add = time.monotonic()
         collection.add(ids=ids, embeddings=embeddings.tolist(), documents=texts, metadatas=metadatas)
+        logger.info("rag.index: chroma add done (%.1fs)", time.monotonic() - t_add)
 
     head = _get_head_commit(repo_path)
     meta_path = index_dir / ".meta.json"
     meta_path.write_text(json.dumps({"last_indexed_commit": head or ""}))
 
-    logger.info("Indexed %d chunks from %s", len(ids), repo_path)
+    logger.info("rag.index: complete — %d chunks from %s (total %.1fs)", len(ids), repo_path.name, time.monotonic() - t0)
     return index_dir

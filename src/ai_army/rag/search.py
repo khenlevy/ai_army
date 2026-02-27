@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from pathlib import Path
 
 import chromadb
@@ -49,15 +50,24 @@ def _ensure_fresh_index(repo_path: Path) -> Path:
 
     if not meta_path.exists():
         logger.info("rag.search: index missing, building for %s", repo_path)
-        return build_index(repo_path)
+        t0 = time.monotonic()
+        result = build_index(repo_path)
+        logger.info("rag.search: index build finished (%.1fs)", time.monotonic() - t0)
+        return result
     try:
         meta = json.loads(meta_path.read_text())
         if meta.get("last_indexed_commit") != head:
             logger.info("rag.search: index stale (HEAD changed), rebuilding for %s", repo_path)
-            return build_index(repo_path)
+            t0 = time.monotonic()
+            result = build_index(repo_path)
+            logger.info("rag.search: index rebuild finished (%.1fs)", time.monotonic() - t0)
+            return result
     except Exception:
         logger.warning("rag.search: could not read meta, rebuilding index")
-        return build_index(repo_path)
+        t0 = time.monotonic()
+        result = build_index(repo_path)
+        logger.info("rag.search: index rebuild finished (%.1fs)", time.monotonic() - t0)
+        return result
     return index_dir
 
 
@@ -72,7 +82,10 @@ def search(repo_path: Path | str, query: str, top_k: int = 8) -> list[dict]:
         return []
 
     index_dir = _ensure_fresh_index(repo_path)
+    t0 = time.monotonic()
+    logger.info("rag.search: loading model %s for query", settings.rag_embedding_model)
     model = SentenceTransformer(settings.rag_embedding_model)
+    logger.info("rag.search: model loaded (%.1fs)", time.monotonic() - t0)
     client = chromadb.PersistentClient(path=str(index_dir))
     collection = client.get_or_create_collection(
         COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
