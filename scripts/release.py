@@ -310,9 +310,10 @@ def main() -> int:
             return 1
         # Stop/remove existing container, load image, run
         # Persist workspace (clone + RAG index) across deploys
+        # Container runs as appuser (UID 1000); workspace must be writable
         deploy_cmd = (
             f"cd {app_path} && "
-            f"mkdir -p .ai_army_workspace && "
+            f"mkdir -p .ai_army_workspace && sudo chown 1000:1000 .ai_army_workspace && "
             f"sudo docker stop {CONTAINER} 2>/dev/null || true && "
             f"sudo docker rm {CONTAINER} 2>/dev/null || true && "
             f"sudo docker load -i {tar_name} && "
