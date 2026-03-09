@@ -4,9 +4,23 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-# Dir names to skip when walking
+# Dir names to skip when walking (tests reduce chunk count and encoding time)
 SKIP_DIRS = frozenset(
-    {"node_modules", "__pycache__", ".git", "build", "dist", ".next", "venv", ".venv"}
+    {
+        "node_modules",
+        "__pycache__",
+        ".git",
+        "build",
+        "dist",
+        ".next",
+        "venv",
+        ".venv",
+        "tests",
+        "__tests__",
+        "test",
+        "spec",
+        "e2e",
+    }
 )
 # File patterns to skip
 SKIP_EXTENSIONS = frozenset(

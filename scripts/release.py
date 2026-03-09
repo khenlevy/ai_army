@@ -309,14 +309,17 @@ def main() -> int:
             log("Pre-deploy cleanup failed")
             return 1
         # Stop/remove existing container, load image, run
+        # Persist workspace (clone + RAG index) across deploys
         deploy_cmd = (
             f"cd {app_path} && "
+            f"mkdir -p .ai_army_workspace && "
             f"sudo docker stop {CONTAINER} 2>/dev/null || true && "
             f"sudo docker rm {CONTAINER} 2>/dev/null || true && "
             f"sudo docker load -i {tar_name} && "
             f'sudo docker run -d --name {CONTAINER} --restart unless-stopped '
             f"--env-file .env.production "
             f"-v $(pwd)/.env.production:/app/.env.production "
+            f"-v $(pwd)/.ai_army_workspace:/app/.ai_army_workspace "
             f"{IMAGE}:latest"
         )
         log("Loading image and starting container...")

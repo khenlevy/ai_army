@@ -106,6 +106,8 @@ def start_scheduler() -> BackgroundScheduler:
     _check_startup()
     from ai_army.rag.search import log_rag_status
     log_rag_status()
+    from ai_army.rag.prebuild import prebuild_indexes
+    prebuild_indexes()
     scheduler = create_scheduler()
     scheduler.start()
     logger.info(
