@@ -1,3 +1,6 @@
+# AI-Army runtime (cloned repos, RAG index, context)
+.ai_army_workspace/
+
 # Environment
 .venv/
 venv/
