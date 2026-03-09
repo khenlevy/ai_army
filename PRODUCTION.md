@@ -33,7 +33,12 @@ sudo docker logs ai-army 2>&1 | grep -i exception
 
 # Last 500 lines, filter errors
 sudo docker logs ai-army --tail 500 2>&1 | grep -iE "error|exception|failed"
+
+# RAG / codebase search status (quick check on droplet)
+sudo docker logs ai-army --tail 200 2>&1 | grep '\[RAG\]'
 ```
+
+**RAG log meanings:** `[RAG] mode=fallback` = using grep (fast); `[RAG] mode=semantic` = using embedding model. Set `RAG_USE_GREP_FALLBACK=1` in `.env.production` to avoid slow RAG encoding on CPU.
 
 ## Release Pipeline
 

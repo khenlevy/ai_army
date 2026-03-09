@@ -72,6 +72,7 @@ def _create_dev_agent(
         backstory=agent_config["backstory"],
         llm=llm,
         verbose=True,
+        max_iter=40,
         tools=[
             RepoStructureTool(repo_path=repo_path),
             ListDirTool(repo_path=repo_path),

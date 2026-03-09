@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # RAG embedding model for codebase search (dev agents). sentence-transformers model ID.
     rag_embedding_model: str = "all-MiniLM-L6-v2"
 
+    # Force grep fallback for codebase search (skip RAG indexing). Use when RAG encoding is too slow (e.g. CPU).
+    # Set RAG_USE_GREP_FALLBACK=1 in production to avoid 20+ min blocks.
+    rag_use_grep_fallback: bool = False
+
 
 def get_settings() -> Settings:
     """Get application settings."""

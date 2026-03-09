@@ -136,6 +136,8 @@ def main():
     args = parser.parse_args()
 
     configure_logging()
+    from ai_army.rag.search import log_rag_status
+    log_rag_status()
 
     if args.command == "schedule" or args.command is None:
         logger.info("Running scheduler (default command)")

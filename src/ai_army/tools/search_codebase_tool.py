@@ -84,13 +84,18 @@ class SearchCodebaseTool(BaseTool):
             logger.warning("SearchCodebaseTool: no query provided")
             return "Provide a query or issue_number to search."
 
-        logger.info("SearchCodebaseTool: searching repo=%s issue=%s query_len=%d", root.name, issue_number, len(search_query))
+        logger.info("[RAG] search | repo=%s issue=%s query_len=%d", root.name, issue_number, len(search_query))
         results = search(root, search_query, top_k=max_results)
         if not results:
-            logger.info("SearchCodebaseTool: no results for query (len=%d)", len(search_query))
-            return "No relevant code found."
+            logger.info("[RAG] no results | repo=%s query_len=%d", root.name, len(search_query))
+            try:
+                top_dirs = [d.name for d in root.iterdir() if d.is_dir() and not d.name.startswith(".")]
+                hint = f"No keyword matches. Explore: {', '.join(top_dirs[:8])}/ for structure."
+                return f"No relevant code found. {hint}"
+            except Exception:
+                return "No relevant code found. Use Repo Structure or List Directory to explore."
 
-        logger.info("SearchCodebaseTool: found %d results for query", len(results))
+        logger.info("[RAG] found %d results | repo=%s", len(results), root.name)
         lines = []
         for r in results:
             fp = r.get("file_path", "")

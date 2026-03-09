@@ -104,6 +104,8 @@ def create_scheduler() -> BackgroundScheduler:
 def start_scheduler() -> BackgroundScheduler:
     """Start the scheduler. Runs startup check first."""
     _check_startup()
+    from ai_army.rag.search import log_rag_status
+    log_rag_status()
     scheduler = create_scheduler()
     scheduler.start()
     logger.info(
