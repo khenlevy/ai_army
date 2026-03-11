@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # Set RAG_USE_GREP_FALLBACK=1 in production to avoid 20+ min blocks.
     rag_use_grep_fallback: bool = False
 
+    # Domain used for per-agent git commit identities.
+    agent_identity_domain: str = "khenlevy.com"
+
     # Dedicated RAG refresh cadence. Refresh runs first; agent jobs run afterward in a later window.
     rag_refresh_interval_hours: int = 1
     rag_refresh_minute: int = 0

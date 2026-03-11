@@ -83,7 +83,7 @@ def _create_dev_agent(
             GitBranchStatusTool(repo_path=repo_path),
             CheckoutBranchTool(repo_path=repo_path),
             CreateLocalBranchTool(repo_path=repo_path),
-            GitCommitTool(repo_path=repo_path),
+            GitCommitTool(repo_path=repo_path, agent_name=agent_config["role"]),
             GitPushTool(repo_path=repo_path),
             CreatePullRequestTool(repo_config=repo_config),
             UpdateIssueTool(repo_config=repo_config),

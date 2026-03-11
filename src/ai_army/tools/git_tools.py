@@ -4,6 +4,8 @@ Agents use these when working in a cloned repo configured via LOCAL_REPO_PATH.
 """
 
 import logging
+import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Type
@@ -43,6 +45,18 @@ def _run_git(repo_path: Path, *args: str) -> str:
         logger.warning("git %s failed (exit %s): %s", " ".join(args[:3]), result.returncode, combined[:200])
         return f"git exited {result.returncode}: {combined}"
     return combined or "ok"
+
+
+def _slugify_agent_identity(value: str) -> str:
+    """Convert a role/name into a stable local-part for git identity."""
+    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    return slug or "agent"
+
+
+def build_agent_identity(agent_name: str) -> tuple[str, str]:
+    """Return git name and email for the given agent."""
+    git_name = _slugify_agent_identity(agent_name)
+    return git_name, f"{git_name}@{settings.agent_identity_domain}"
 
 
 # --- CreateLocalBranchTool ---
@@ -104,9 +118,15 @@ class GitCommitTool(BaseTool):
     )
     args_schema: Type[BaseModel] = GitCommitInput
 
-    def __init__(self, repo_path: str | None = None, **kwargs):
+    def __init__(
+        self,
+        repo_path: str | None = None,
+        agent_name: str = "agent",
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._repo_path_override = repo_path
+        self._agent_name = agent_name
 
     def _run(self, message: str, paths: str = ".") -> str:
         repo = _repo_path(self._repo_path_override)
@@ -115,10 +135,29 @@ class GitCommitTool(BaseTool):
             return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
         add_args = paths.split() if paths.strip() != "." else ["."]
         _run_git(repo, "add", *add_args)
-        out = _run_git(repo, "commit", "-m", message)
+        git_name, git_email = build_agent_identity(self._agent_name)
+        env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": git_name,
+            "GIT_AUTHOR_EMAIL": git_email,
+            "GIT_COMMITTER_NAME": git_name,
+            "GIT_COMMITTER_EMAIL": git_email,
+        }
+        result = subprocess.run(
+            ["git", "commit", "-m", message],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        out = "\n".join(filter(None, [(result.stdout or "").strip(), (result.stderr or "").strip()])) or "ok"
+        if result.returncode != 0:
+            logger.warning("git commit -m %s failed (exit %s): %s", message[:80], result.returncode, out[:200])
+            return f"git exited {result.returncode}: {out}"
         if "exited" in out:
             return out
-        logger.info("GitCommitTool: committed: %s", message[:80])
+        logger.info("GitCommitTool: committed as %s <%s>: %s", git_name, git_email, message[:80])
         return f"Committed: {message}"
 
 
