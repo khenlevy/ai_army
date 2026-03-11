@@ -285,8 +285,18 @@ def _repo_permission_set(repo: Any) -> set[str]:
     raw = getattr(repo, "permissions", None) or {}
     if isinstance(raw, dict):
         return {name for name, allowed in raw.items() if allowed}
+    raw_data = getattr(raw, "_rawData", None)
+    if isinstance(raw_data, dict):
+        return {name for name, allowed in raw_data.items() if allowed}
     if hasattr(raw, "__dict__"):
-        return {name for name, allowed in vars(raw).items() if allowed}
+        normalized: dict[str, bool] = {}
+        for name, allowed in vars(raw).items():
+            clean_name = name.lstrip("_")
+            if clean_name not in {"admin", "maintain", "push", "triage", "pull"}:
+                continue
+            value = getattr(allowed, "value", allowed)
+            normalized[clean_name] = bool(value)
+        return {name for name, allowed in normalized.items() if allowed}
     return set()
 
 

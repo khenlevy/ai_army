@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import subprocess
+from types import SimpleNamespace
 from pathlib import Path
 
-from ai_army.rag.runtime_state import RepoCapabilities, RepoRuntimeState, validate_runtime_state
+from ai_army.rag.runtime_state import _repo_permission_set, RepoCapabilities, RepoRuntimeState, validate_runtime_state
 from ai_army.rag.search import query_codebase
 
 
@@ -54,3 +55,20 @@ def test_query_codebase_returns_fallback_results(monkeypatch, tmp_path):
 
     assert response.retrieval_mode == "lexical_fallback"
     assert response.results[0]["file_path"] == "README.md"
+
+
+def test_repo_permission_set_reads_pygithub_raw_data():
+    """Permission parsing should handle PyGithub objects with _rawData payloads."""
+    repo = SimpleNamespace(
+        permissions=SimpleNamespace(
+            _rawData={
+                "admin": True,
+                "maintain": True,
+                "push": True,
+                "triage": True,
+                "pull": True,
+            }
+        )
+    )
+
+    assert _repo_permission_set(repo) == {"admin", "maintain", "push", "triage", "pull"}
