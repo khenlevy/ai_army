@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     # Set RAG_USE_GREP_FALLBACK=1 in production to avoid 20+ min blocks.
     rag_use_grep_fallback: bool = False
 
+    # Dedicated RAG refresh cadence. Refresh runs first; agent jobs run afterward in a later window.
+    rag_refresh_interval_hours: int = 1
+    rag_refresh_minute: int = 0
+    rag_agent_window_delay_minutes: int = 10
+    rag_build_lock_timeout_seconds: int = 30
+
 
 def get_settings() -> Settings:
     """Get application settings."""

@@ -1,18 +1,23 @@
-"""Search the codebase index via semantic similarity. Falls back to grep when RAG unavailable."""
+"""Search the published codebase snapshot via semantic similarity or lexical fallback."""
 
-import json
 import logging
+import re
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from ai_army.config.settings import settings
+from ai_army.rag.runtime_state import (
+    RAG_LOG,
+    load_active_snapshot,
+    validate_runtime_state,
+)
 
 logger = logging.getLogger(__name__)
-RAG_LOG = "[RAG]"
-
 _RAG_AVAILABLE: bool | None = None
 _RAG_STATUS_LOGGED: bool = False
+_QUERY_MODEL = None
 
 
 def _rag_available() -> bool:
@@ -45,12 +50,23 @@ def log_rag_status() -> None:
         logger.info("%s mode=semantic | codebase search uses embedding model %s", RAG_LOG, settings.rag_embedding_model)
 
 
+@dataclass
+class SearchResponse:
+    """Structured search response with retrieval metadata for agent logs."""
+
+    results: list[dict]
+    retrieval_mode: str
+    snapshot_version: str = ""
+    index_state: str = ""
+
+
 def _grep_search(repo_path: Path, query: str, top_k: int = 8) -> list[dict]:
     """Fallback: use ripgrep to find files matching query keywords. Returns same shape as RAG search."""
     keywords = [w.strip() for w in query.split() if len(w.strip()) > 2][:6]
     if not keywords:
         return []
-    pattern = "|".join(k[:20] for k in keywords)
+    escaped = [re.escape(k[:20]) for k in keywords]
+    pattern = "|".join(escaped)
     exclude = ["-g", "!node_modules", "-g", "!.yarn", "-g", "!.git", "-g", "!*/.cache/*"]
     logger.info("%s grep fallback | repo=%s keywords=%s", RAG_LOG, repo_path.name, keywords[:4])
     try:
@@ -87,121 +103,92 @@ def _grep_search(repo_path: Path, query: str, top_k: int = 8) -> list[dict]:
     return out[:top_k]
 COLLECTION_NAME = "codebase"
 MAX_SNIPPET_LINES = 30
+QUERY_COLLECTION_NAME = COLLECTION_NAME
 
 
-def _workspace_root() -> Path:
-    raw = settings.repo_workspace.strip()
-    if raw:
-        return Path(raw).expanduser().resolve()
-    return Path.cwd().resolve() / ".ai_army_workspace"
+def _get_query_model():
+    """Cache the query embedding model across searches."""
+    global _QUERY_MODEL
+    if _QUERY_MODEL is None:
+        from sentence_transformers import SentenceTransformer
 
-
-def _index_dir_for_repo(repo_path: Path) -> Path:
-    workspace = _workspace_root()
-    slug = repo_path.name
-    return workspace / ".ai_army_index" / slug
-
-
-def _ensure_fresh_index(repo_path: Path) -> Path:
-    """Build index if missing or stale (HEAD changed)."""
-    index_dir = _index_dir_for_repo(repo_path)
-    meta_path = index_dir / ".meta.json"
-
-    head = None
-    try:
-        import subprocess
-        r = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        head = r.stdout.strip() if r.returncode == 0 else None
-    except Exception:
-        pass
-
-    if not meta_path.exists():
-        from ai_army.rag.indexer import build_index
-        logger.info("%s index missing, building for %s", RAG_LOG, repo_path)
         t0 = time.monotonic()
-        result = build_index(repo_path)
-        logger.info("%s index build finished (%.1fs)", RAG_LOG, time.monotonic() - t0)
-        return result
-    try:
-        meta = json.loads(meta_path.read_text())
-        # Do NOT rebuild when HEAD changed (e.g. feature branch checkout). Index from main
-        # is still useful; rebuild blocks Dev crew 15-20 min. Only rebuild when missing.
-        if meta.get("last_indexed_commit") != head:
-            logger.debug("%s index from different commit (current=%s), reusing", RAG_LOG, head[:8] if head else "?")
-    except Exception:
-        from ai_army.rag.indexer import build_index
-        logger.warning("%s could not read meta, rebuilding index", RAG_LOG)
-        t0 = time.monotonic()
-        result = build_index(repo_path)
-        logger.info("%s index rebuild finished (%.1fs)", RAG_LOG, time.monotonic() - t0)
-        return result
-    return index_dir
+        logger.info("%s loading model %s for query", RAG_LOG, settings.rag_embedding_model)
+        _QUERY_MODEL = SentenceTransformer(settings.rag_embedding_model)
+        logger.info("%s model loaded (%.1fs)", RAG_LOG, time.monotonic() - t0)
+    return _QUERY_MODEL
 
 
-def search(repo_path: Path | str, query: str, top_k: int = 8) -> list[dict]:
-    """Search codebase. Returns list of {file_path, start_line, end_line, snippet}. Uses grep when RAG unavailable."""
+def query_codebase(repo_path: Path | str, query: str, top_k: int = 8) -> SearchResponse:
+    """Search codebase with retrieval metadata. Never builds indexes inline."""
     repo_path = Path(repo_path).resolve()
     if not query or not query.strip():
         logger.debug("%s empty query, returning []", RAG_LOG)
-        return []
+        return SearchResponse(results=[], retrieval_mode="empty_query")
     if not (repo_path / ".git").exists():
         logger.warning("%s %s is not a git repo", RAG_LOG, repo_path)
-        return []
+        return SearchResponse(results=[], retrieval_mode="invalid_repo")
 
-    use_fallback = getattr(settings, "rag_use_grep_fallback", False) or not _rag_available()
-    if use_fallback:
-        logger.info("%s using grep fallback | repo=%s", RAG_LOG, repo_path.name)
-        return _grep_search(repo_path, query, top_k)
+    state = validate_runtime_state(repo_path)
+    if state.retrieval_mode.startswith("semantic") and _rag_available():
+        active_snapshot = load_active_snapshot(repo_path)
+        snapshot_dir = Path(active_snapshot.get("snapshot_dir", "")) if active_snapshot else None
+        if snapshot_dir and snapshot_dir.exists():
+            try:
+                import chromadb
 
-    index_dir = _ensure_fresh_index(repo_path)
-    import chromadb
-    from sentence_transformers import SentenceTransformer
+                client = chromadb.PersistentClient(path=str(snapshot_dir))
+                collection = client.get_or_create_collection(
+                    QUERY_COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
+                )
+                count = collection.count()
+                if count > 0:
+                    logger.debug("%s querying snapshot %s (count=%d, top_k=%d)", RAG_LOG, state.snapshot_version, count, top_k)
+                    model = _get_query_model()
+                    query_embedding = model.encode([query], show_progress_bar=False)
+                    results = collection.query(
+                        query_embeddings=query_embedding.tolist(),
+                        n_results=min(top_k, count),
+                        include=["documents", "metadatas"],
+                    )
+                    out: list[dict] = []
+                    if results and results.get("metadatas"):
+                        for meta_list, doc_list in zip(results["metadatas"][0], results["documents"][0]):
+                            if not meta_list or not doc_list:
+                                continue
+                            snippet = doc_list
+                            lines = snippet.splitlines()
+                            if len(lines) > MAX_SNIPPET_LINES:
+                                snippet = "\n".join(lines[:MAX_SNIPPET_LINES]) + "\n..."
+                            out.append(
+                                {
+                                    "file_path": meta_list.get("file_path", ""),
+                                    "start_line": meta_list.get("start_line", 0),
+                                    "end_line": meta_list.get("end_line", 0),
+                                    "snippet": snippet,
+                                    "language": meta_list.get("language", ""),
+                                    "symbol_name": meta_list.get("symbol_name", ""),
+                                }
+                            )
+                    logger.info("%s returned %d results | mode=%s snapshot=%s", RAG_LOG, len(out), state.retrieval_mode, state.snapshot_version)
+                    return SearchResponse(
+                        results=out,
+                        retrieval_mode=state.retrieval_mode,
+                        snapshot_version=state.snapshot_version,
+                        index_state=state.index_state,
+                    )
+            except Exception as exc:
+                logger.warning("%s semantic query failed for %s, degrading to lexical fallback: %s", RAG_LOG, repo_path.name, exc)
 
-    t0 = time.monotonic()
-    logger.info("%s loading model %s for query", RAG_LOG, settings.rag_embedding_model)
-    model = SentenceTransformer(settings.rag_embedding_model)
-    logger.info("%s model loaded (%.1fs)", RAG_LOG, time.monotonic() - t0)
-    client = chromadb.PersistentClient(path=str(index_dir))
-    collection = client.get_or_create_collection(
-        COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
+    logger.info("%s using lexical fallback | repo=%s", RAG_LOG, repo_path.name)
+    return SearchResponse(
+        results=_grep_search(repo_path, query, top_k),
+        retrieval_mode="lexical_fallback",
+        snapshot_version=state.snapshot_version,
+        index_state=state.index_state,
     )
 
-    count = collection.count()
-    if count == 0:
-        logger.warning("%s index empty for %s", RAG_LOG, repo_path)
-        return []
 
-    logger.debug("%s querying index (count=%d, top_k=%d)", RAG_LOG, count, top_k)
-    query_embedding = model.encode([query], show_progress_bar=False)
-    results = collection.query(
-        query_embeddings=query_embedding.tolist(),
-        n_results=min(top_k, count),
-        include=["documents", "metadatas"],
-    )
-
-    out: list[dict] = []
-    if not results or not results["metadatas"]:
-        return out
-    for meta_list, doc_list in zip(results["metadatas"][0], results["documents"][0]):
-        if not meta_list or not doc_list:
-            continue
-        snippet = doc_list
-        lines = snippet.splitlines()
-        if len(lines) > MAX_SNIPPET_LINES:
-            snippet = "\n".join(lines[:MAX_SNIPPET_LINES]) + "\n..."
-        out.append(
-            {
-                "file_path": meta_list.get("file_path", ""),
-                "start_line": meta_list.get("start_line", 0),
-                "end_line": meta_list.get("end_line", 0),
-                "snippet": snippet,
-            }
-        )
-    logger.info("%s returned %d results", RAG_LOG, len(out))
-    return out
+def search(repo_path: Path | str, query: str, top_k: int = 8) -> list[dict]:
+    """Compatibility wrapper returning only result rows."""
+    return query_codebase(repo_path, query, top_k=top_k).results

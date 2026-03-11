@@ -8,7 +8,7 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from ai_army.config.settings import GitHubRepoConfig
-from ai_army.rag.search import search
+from ai_army.rag.search import query_codebase
 from ai_army.tools.github_helpers import _get_repo_from_config
 
 logger = logging.getLogger(__name__)
@@ -85,19 +85,27 @@ class SearchCodebaseTool(BaseTool):
             return "Provide a query or issue_number to search."
 
         logger.info("[RAG] search | repo=%s issue=%s query_len=%d", root.name, issue_number, len(search_query))
-        results = search(root, search_query, top_k=max_results)
-        if not results:
-            logger.info("[RAG] no results | repo=%s query_len=%d", root.name, len(search_query))
+        response = query_codebase(root, search_query, top_k=max_results)
+        if not response.results:
+            logger.info("[RAG] no results | repo=%s query_len=%d mode=%s", root.name, len(search_query), response.retrieval_mode)
             try:
                 top_dirs = [d.name for d in root.iterdir() if d.is_dir() and not d.name.startswith(".")]
                 hint = f"No keyword matches. Explore: {', '.join(top_dirs[:8])}/ for structure."
-                return f"No relevant code found. {hint}"
+                return f"No relevant code found. Search mode: {response.retrieval_mode}. {hint}"
             except Exception:
                 return "No relevant code found. Use Repo Structure or List Directory to explore."
 
-        logger.info("[RAG] found %d results | repo=%s", len(results), root.name)
-        lines = []
-        for r in results:
+        logger.info(
+            "[RAG] found %d results | repo=%s mode=%s snapshot=%s",
+            len(response.results),
+            root.name,
+            response.retrieval_mode,
+            response.snapshot_version or "-",
+        )
+        lines = [
+            f"Search mode: {response.retrieval_mode} | snapshot: {response.snapshot_version or 'n/a'}"
+        ]
+        for r in response.results:
             fp = r.get("file_path", "")
             start = r.get("start_line", 0)
             end = r.get("end_line", 0)

@@ -11,6 +11,8 @@ from ai_army.crews.dev_crew import DevCrew
 from ai_army.crews.product_crew import ProductCrew
 from ai_army.crews.team_lead_crew import TeamLeadCrew
 from ai_army.memory.context_store import get_context_store
+from ai_army.rag.prebuild import refresh_indexes
+from ai_army.rag.runtime_state import agent_window_open, load_runtime_state, repo_key_for_config
 from ai_army.scheduler.token_check import run_if_tokens_available
 from ai_army.tools.github_helpers import (
     count_issues_for_dev,
@@ -36,6 +38,58 @@ def _log_next_run(job_id: str) -> None:
             logger.info("Next %s: %s", job_id, job.next_run_time.strftime("%Y-%m-%d %H:%M"))
 
 
+def _repo_ready(
+    repo_config,
+    *,
+    require_search: bool = False,
+    require_issue_ops: bool = False,
+    require_code_ops: bool = False,
+    require_pr_ops: bool = False,
+    require_review_ops: bool = False,
+) -> bool:
+    """Gate agent jobs on synchronized RAG/runtime readiness."""
+    state = load_runtime_state(repo_key_for_config(repo_config))
+    missing: list[str] = []
+    if not state.repo_path:
+        logger.info("Skipping job for %s - runtime state missing (refresh has not completed)", repo_config.repo)
+        return False
+    if not agent_window_open(state):
+        logger.info(
+            "Skipping job for %s - agent window not open yet (opens at %s)",
+            repo_config.repo,
+            state.next_agent_window_at or "unknown",
+        )
+        return False
+    if require_search and not state.capabilities.search_ready:
+        missing.append("search_ready")
+    if require_issue_ops and not state.capabilities.issue_ops_ready:
+        missing.append("issue_ops_ready")
+    if require_code_ops and not state.capabilities.code_ops_ready:
+        missing.append("code_ops_ready")
+    if require_pr_ops and not state.capabilities.pr_ops_ready:
+        missing.append("pr_ops_ready")
+    if require_review_ops and not state.capabilities.review_ops_ready:
+        missing.append("review_ops_ready")
+    if missing:
+        logger.info(
+            "Skipping job for %s - missing capabilities: %s | mode=%s state=%s",
+            repo_config.repo,
+            ", ".join(missing),
+            state.retrieval_mode,
+            state.agent_state,
+        )
+        return False
+    return True
+
+
+def run_rag_refresh_job() -> None:
+    """Refresh published RAG snapshots and validate readiness before agent windows."""
+    logger.info("RAG refresh starting")
+    refresh_indexes()
+    logger.info("RAG refresh completed")
+    _log_next_run("rag_refresh")
+
+
 def run_product_crew_job() -> None:
     """Run Product Crew for each configured repo. Skips when API limit reached."""
     repos = get_github_repos()
@@ -50,6 +104,8 @@ def run_product_crew_job() -> None:
         logger.info("Product Crew: context from previous crews (%d chars)", len(crew_context))
         logger.info("GitHub repos for this run: %s", ", ".join(r.repo for r in repos))
         for repo_config in repos:
+            if not _repo_ready(repo_config, require_search=True, require_issue_ops=True):
+                continue
             try:
                 logger.info("Product Crew starting | repo: %s", repo_config.repo)
                 result = ProductCrew.kickoff(repo_config=repo_config, crew_context=crew_context)
@@ -68,6 +124,9 @@ def run_team_lead_crew_job() -> None:
     repos = get_github_repos()
     if not repos:
         logger.warning("No GitHub repos configured, skipping job")
+        return
+    if not _repo_ready(repos[0], require_search=True, require_issue_ops=True):
+        _log_next_run("team_lead_crew")
         return
 
     # GitHub-only pre-check: no Claude if no work
@@ -101,6 +160,9 @@ def run_dev_crew_job(agent_type: str) -> None:
     repos = get_github_repos()
     if not repos:
         logger.warning("No GitHub repos configured, skipping job")
+        return
+    if not _repo_ready(repos[0], require_search=True, require_code_ops=True, require_pr_ops=True):
+        _log_next_run(f"dev_crew_{agent_type}")
         return
 
     # GitHub-only pre-check: no Claude if no work

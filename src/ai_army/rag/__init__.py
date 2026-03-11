@@ -1,9 +1,9 @@
 """RAG – codebase indexing and semantic search.
 
 Indexing (indexer.build_index): Walks repo, chunks via chunker, embeds with sentence-transformers,
-persists to ChromaDB in .ai_army_index/{slug}/.
-Search (search.search): Ensures index exists/fresh (rebuilds if HEAD changed), embeds query, returns
-top-k snippets. Used by SearchCodebaseTool for Dev crew.
+and publishes versioned ChromaDB snapshots under .ai_army_index/{slug}/snapshots/.
+Search (search.search): Reads the published snapshot or degrades to lexical fallback. Used by
+SearchCodebaseTool for Dev crew without triggering inline rebuilds.
 """
 
 from ai_army.rag.chunker import Chunk, chunk_file, should_index_path
