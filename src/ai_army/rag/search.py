@@ -130,13 +130,10 @@ def _ensure_fresh_index(repo_path: Path) -> Path:
         return result
     try:
         meta = json.loads(meta_path.read_text())
+        # Do NOT rebuild when HEAD changed (e.g. feature branch checkout). Index from main
+        # is still useful; rebuild blocks Dev crew 15-20 min. Only rebuild when missing.
         if meta.get("last_indexed_commit") != head:
-            from ai_army.rag.indexer import build_index
-            logger.info("%s index stale (HEAD changed), rebuilding for %s", RAG_LOG, repo_path)
-            t0 = time.monotonic()
-            result = build_index(repo_path)
-            logger.info("%s index rebuild finished (%.1fs)", RAG_LOG, time.monotonic() - t0)
-            return result
+            logger.debug("%s index from different commit (current=%s), reusing", RAG_LOG, head[:8] if head else "?")
     except Exception:
         from ai_army.rag.indexer import build_index
         logger.warning("%s could not read meta, rebuilding index", RAG_LOG)
