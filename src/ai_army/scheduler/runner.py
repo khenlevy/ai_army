@@ -16,6 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from ai_army.config import get_github_repos
 from ai_army.config.settings import settings
 from ai_army.scheduler.jobs import (
+    run_conflict_check_job,
     run_rag_refresh_job,
     run_dev_crew_job,
     run_product_crew_job,
@@ -28,20 +29,24 @@ from ai_army.tools.github_tools import check_github_connection_and_log
 logger = logging.getLogger(__name__)
 
 
+def _hour_minute_slot(offset_minutes: int) -> tuple[int, int]:
+    """Return the hour offset and minute slot for an offset from the refresh window."""
+    total_minutes = settings.rag_refresh_minute + offset_minutes
+    return divmod(total_minutes, 60)
+
+
 def _minute_slot(offset_minutes: int) -> int:
     """Return the minute slot within the hour for a configured refresh window."""
-    minute = settings.rag_refresh_minute + offset_minutes
-    if minute > 59:
-        raise ValueError(
-            "RAG schedule exceeds the hour boundary. Reduce RAG_AGENT_WINDOW_DELAY_MINUTES "
-            "or move RAG_REFRESH_MINUTE earlier."
-        )
+    _, minute = _hour_minute_slot(offset_minutes)
     return minute
 
 
-def _refresh_hour_expr() -> str:
+def _refresh_hour_expr(hour_offset: int = 0) -> str:
     interval = max(settings.rag_refresh_interval_hours, 1)
-    return "*" if interval == 1 else f"*/{interval}"
+    if interval == 1:
+        return "*"
+    hours = [str(hour) for hour in range(hour_offset, 24, interval)]
+    return ",".join(hours) if hours else str(hour_offset % 24)
 
 
 def _check_startup() -> bool:
@@ -75,12 +80,21 @@ def create_scheduler() -> BackgroundScheduler:
     frontend_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 20)
     backend_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 30)
     fullstack_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 40)
+    conflict_check_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 45)
+
+    refresh_hour_offset, _ = _hour_minute_slot(0)
+    product_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes)
+    team_lead_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 10)
+    frontend_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 20)
+    backend_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 30)
+    fullstack_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 40)
+    conflict_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 45)
 
     scheduler.add_job(
         run_rag_refresh_job,
         trigger="cron",
         minute=str(refresh_minute),
-        hour=_refresh_hour_expr(),
+        hour=_refresh_hour_expr(refresh_hour_offset),
         id="rag_refresh",
     )
     # Product: runs after refresh window opens and can create/enrich issues.
@@ -88,7 +102,7 @@ def create_scheduler() -> BackgroundScheduler:
         run_product_crew_job,
         trigger="cron",
         minute=str(product_minute),
-        hour=_refresh_hour_expr(),
+        hour=_refresh_hour_expr(product_hour_offset),
         id="product_crew",
     )
     # Team Lead: breaks down sub-issues after the product window.
@@ -96,7 +110,7 @@ def create_scheduler() -> BackgroundScheduler:
         run_team_lead_crew_job,
         trigger="cron",
         minute=str(team_lead_minute),
-        hour=_refresh_hour_expr(),
+        hour=_refresh_hour_expr(team_lead_hour_offset),
         id="team_lead_crew",
     )
     # Dev: runs only after refresh + readiness window.
@@ -104,22 +118,29 @@ def create_scheduler() -> BackgroundScheduler:
         partial(run_dev_crew_job, "frontend"),
         trigger="cron",
         minute=str(frontend_minute),
-        hour=_refresh_hour_expr(),
+        hour=_refresh_hour_expr(frontend_hour_offset),
         id="dev_crew_frontend",
     )
     scheduler.add_job(
         partial(run_dev_crew_job, "backend"),
         trigger="cron",
         minute=str(backend_minute),
-        hour=_refresh_hour_expr(),
+        hour=_refresh_hour_expr(backend_hour_offset),
         id="dev_crew_backend",
     )
     scheduler.add_job(
         partial(run_dev_crew_job, "fullstack"),
         trigger="cron",
         minute=str(fullstack_minute),
-        hour=_refresh_hour_expr(),
+        hour=_refresh_hour_expr(fullstack_hour_offset),
         id="dev_crew_fullstack",
+    )
+    scheduler.add_job(
+        run_conflict_check_job,
+        trigger="cron",
+        minute=str(conflict_check_minute),
+        hour=_refresh_hour_expr(conflict_hour_offset),
+        id="conflict_check",
     )
     # QA disabled - automation infra to be added later
     # Startup window: refresh first, then open agent jobs with the same offsets.
@@ -160,6 +181,12 @@ def create_scheduler() -> BackgroundScheduler:
         run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes + 40),
         id="dev_crew_fullstack_startup",
     )
+    scheduler.add_job(
+        run_conflict_check_job,
+        trigger="date",
+        run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes + 45),
+        id="conflict_check_startup",
+    )
     set_scheduler(scheduler)
     return scheduler
 
@@ -173,12 +200,13 @@ def start_scheduler() -> BackgroundScheduler:
     scheduler.start()
     logger.info(
         "Scheduler running. Pipeline: RAG refresh(:%02d) → Product(:%02d) → Team Lead(:%02d) → "
-        "Dev frontend(:%02d) backend(:%02d) fullstack(:%02d). QA disabled.",
+        "Dev frontend(:%02d) backend(:%02d) fullstack(:%02d) → Conflict check(:%02d). QA disabled.",
         _minute_slot(0),
         _minute_slot(settings.rag_agent_window_delay_minutes),
         _minute_slot(settings.rag_agent_window_delay_minutes + 10),
         _minute_slot(settings.rag_agent_window_delay_minutes + 20),
         _minute_slot(settings.rag_agent_window_delay_minutes + 30),
         _minute_slot(settings.rag_agent_window_delay_minutes + 40),
+        _minute_slot(settings.rag_agent_window_delay_minutes + 45),
     )
     return scheduler

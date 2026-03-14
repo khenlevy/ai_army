@@ -47,6 +47,33 @@ def _run_git(repo_path: Path, *args: str) -> str:
     return combined or "ok"
 
 
+def _run_git_result(repo_path: Path, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """Run git and return the raw subprocess result."""
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+
+
+def _combined_output(result: subprocess.CompletedProcess[str]) -> str:
+    """Return combined stdout/stderr from a completed process."""
+    return "\n".join(
+        filter(None, [(result.stdout or "").strip(), (result.stderr or "").strip()])
+    ) or "ok"
+
+
+def _conflicting_files(repo_path: Path) -> list[str]:
+    """Return files with unresolved merge conflicts, if any."""
+    result = _run_git_result(repo_path, "diff", "--name-only", "--diff-filter=U")
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+
+
 def _slugify_agent_identity(value: str) -> str:
     """Convert a role/name into a stable local-part for git identity."""
     slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
@@ -151,7 +178,7 @@ class GitCommitTool(BaseTool):
             timeout=60,
             env=env,
         )
-        out = "\n".join(filter(None, [(result.stdout or "").strip(), (result.stderr or "").strip()])) or "ok"
+        out = _combined_output(result)
         if result.returncode != 0:
             logger.warning("git commit -m %s failed (exit %s): %s", message[:80], result.returncode, out[:200])
             return f"git exited {result.returncode}: {out}"
@@ -205,3 +232,175 @@ class GitPushTool(BaseTool):
             return out
         logger.info("GitPushTool: pushed %s to %s", refspec, remote)
         return f"Pushed {refspec} to {remote}"
+
+
+class GitRebaseInput(BaseModel):
+    """Input schema for GitRebaseTool."""
+
+    base_ref: str = Field(default="main", description="Base branch or ref to rebase onto")
+
+
+class GitRebaseTool(BaseTool):
+    """Rebase the current branch onto a base ref."""
+
+    name: str = "Git Rebase"
+    description: str = (
+        "Rebase the current branch onto a base ref such as main. "
+        "If conflicts occur, inspect the reported files, resolve them, then use Git Rebase Continue."
+    )
+    args_schema: Type[BaseModel] = GitRebaseInput
+
+    def __init__(self, repo_path: str | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_path_override = repo_path
+
+    def _run(self, base_ref: str = "main") -> str:
+        repo = _repo_path(self._repo_path_override)
+        if not repo:
+            logger.warning("GitRebaseTool: local repo not configured")
+            return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
+        result = _run_git_result(repo, "rebase", base_ref)
+        output = _combined_output(result)
+        if result.returncode == 0:
+            logger.info("GitRebaseTool: rebased onto %s", base_ref)
+            return f"Rebase completed successfully. Branch is now up to date with {base_ref}."
+        files = _conflicting_files(repo)
+        if files:
+            logger.warning("GitRebaseTool: conflicts while rebasing onto %s: %s", base_ref, ", ".join(files))
+            return (
+                f"Rebase stopped due to conflicts in: {', '.join(files)}. "
+                "Resolve conflicts, then use Git Rebase Continue."
+            )
+        return f"git exited {result.returncode}: {output}"
+
+
+class GitRebaseContinueInput(BaseModel):
+    """Input schema for GitRebaseContinueTool."""
+
+    resolved_files: str = Field(
+        default=".",
+        description="Files already resolved. Use '.' to stage everything before continuing the rebase.",
+    )
+
+
+class GitRebaseContinueTool(BaseTool):
+    """Stage resolved files and continue an in-progress rebase."""
+
+    name: str = "Git Rebase Continue"
+    description: str = (
+        "Stage resolved files and continue an in-progress rebase. "
+        "Use after removing conflict markers from files."
+    )
+    args_schema: Type[BaseModel] = GitRebaseContinueInput
+
+    def __init__(self, repo_path: str | None = None, agent_name: str = "agent", **kwargs):
+        super().__init__(**kwargs)
+        self._repo_path_override = repo_path
+        self._agent_name = agent_name
+
+    def _run(self, resolved_files: str = ".") -> str:
+        repo = _repo_path(self._repo_path_override)
+        if not repo:
+            logger.warning("GitRebaseContinueTool: local repo not configured")
+            return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
+        add_args = resolved_files.split() if resolved_files.strip() != "." else ["."]
+        add_output = _run_git(repo, "add", *add_args)
+        if "exited" in add_output:
+            return add_output
+        git_name, git_email = build_agent_identity(self._agent_name)
+        result = _run_git_result(
+            repo,
+            "rebase",
+            "--continue",
+            env={
+                **os.environ,
+                "GIT_EDITOR": "true",
+                "GIT_AUTHOR_NAME": git_name,
+                "GIT_AUTHOR_EMAIL": git_email,
+                "GIT_COMMITTER_NAME": git_name,
+                "GIT_COMMITTER_EMAIL": git_email,
+            },
+        )
+        output = _combined_output(result)
+        if result.returncode == 0:
+            logger.info("GitRebaseContinueTool: continued rebase successfully")
+            return "Rebase continued successfully."
+        files = _conflicting_files(repo)
+        if files:
+            return (
+                f"Rebase still has conflicts in: {', '.join(files)}. "
+                "Resolve the remaining files and run Git Rebase Continue again."
+            )
+        return f"git exited {result.returncode}: {output}"
+
+
+class GitRebaseAbortInput(BaseModel):
+    """Input schema for GitRebaseAbortTool."""
+
+
+class GitRebaseAbortTool(BaseTool):
+    """Abort an in-progress rebase."""
+
+    name: str = "Git Rebase Abort"
+    description: str = "Abort the current rebase and return the branch to its pre-rebase state."
+    args_schema: Type[BaseModel] = GitRebaseAbortInput
+
+    def __init__(self, repo_path: str | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_path_override = repo_path
+
+    def _run(self) -> str:
+        repo = _repo_path(self._repo_path_override)
+        if not repo:
+            logger.warning("GitRebaseAbortTool: local repo not configured")
+            return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
+        output = _run_git(repo, "rebase", "--abort")
+        if "exited" in output:
+            return output
+        logger.info("GitRebaseAbortTool: aborted rebase")
+        return "Rebase aborted."
+
+
+class GitForcePushInput(BaseModel):
+    """Input schema for GitForcePushTool."""
+
+    branch: str = Field(
+        default="",
+        description="Branch to push with --force-with-lease (default: current branch).",
+    )
+    remote: str = Field(default="origin", description="Remote name (default: origin)")
+
+
+class GitForcePushTool(BaseTool):
+    """Force-push the current branch after a rebase."""
+
+    name: str = "Git Force Push"
+    description: str = (
+        "Push the current branch with --force-with-lease after rebasing or rewriting history. "
+        "Use only to update an existing PR branch."
+    )
+    args_schema: Type[BaseModel] = GitForcePushInput
+
+    def __init__(self, repo_path: str | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_path_override = repo_path
+
+    def _run(self, branch: str = "", remote: str = "origin") -> str:
+        repo = _repo_path(self._repo_path_override)
+        if not repo:
+            logger.warning("GitForcePushTool: local repo not configured")
+            return "Local repo not configured. Set LOCAL_REPO_PATH to the path of your cloned repo."
+        refspec = branch.strip()
+        if not refspec:
+            out = _run_git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+            if "exited" in out:
+                return out
+            refspec = out.strip()
+        if refspec in {"main", "master"}:
+            logger.warning("GitForcePushTool: refusing to force-push protected branch %s", refspec)
+            return f"Refusing to force-push protected branch '{refspec}'. Provide the PR branch explicitly."
+        out = _run_git(repo, "push", "--force-with-lease", remote, refspec)
+        if "exited" in out:
+            return out
+        logger.info("GitForcePushTool: force-pushed %s to %s", refspec, remote)
+        return f"Force-pushed {refspec} to {remote}"

@@ -4,16 +4,32 @@ Builds a summary of in-progress work (branches, commits, files changed) so the a
 can continue existing work instead of starting from scratch.
 """
 
+from __future__ import annotations
+
 import logging
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from ai_army.config.settings import GitHubRepoConfig
 from ai_army.tools.github_helpers import list_issues_for_dev
+from ai_army.workspace_manager import WorkspacePrepareResult
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_BASE = "main"
+
+
+@dataclass
+class BranchInfo:
+    """Summary of a branch tied to an in-progress issue."""
+
+    issue_number: int
+    title: str
+    branch_name: str
+    commit_lines: list[str]
+    changed_files: list[str]
+    on_remote: bool
 
 
 def _run_git(repo_path: Path, *args: str) -> tuple[int, str]:
@@ -46,6 +62,82 @@ def _find_matching_branch(repo_path: Path, issue_number: int) -> str | None:
     return None
 
 
+def list_in_progress_branch_infos(
+    repo_config: GitHubRepoConfig | None,
+    clone_path: Path | None,
+    agent_type: str,
+) -> list[BranchInfo]:
+    """Return branch summaries for in-progress issues of the given agent type."""
+    if not repo_config or not clone_path or not (clone_path / ".git").exists():
+        return []
+
+    issues = list_issues_for_dev(repo_config, agent_type)
+    in_progress = [(num, title) for num, title, is_ip in issues if is_ip]
+    if not in_progress:
+        return []
+
+    base = DEFAULT_BASE
+    code, _ = _run_git(clone_path, "rev-parse", "--verify", "main")
+    if code != 0:
+        base = "origin/main"
+
+    infos: list[BranchInfo] = []
+    for issue_number, title in in_progress:
+        branch = _find_matching_branch(clone_path, issue_number)
+        if not branch:
+            continue
+
+        code, log_out = _run_git(clone_path, "log", f"{base}..{branch}", "--oneline")
+        if code != 0:
+            log_out = ""
+
+        code, diff_out = _run_git(clone_path, "diff", f"{base}..{branch}", "--stat")
+        if code != 0:
+            diff_out = ""
+
+        code, remote_out = _run_git(clone_path, "branch", "-r")
+        on_remote = code == 0 and f"origin/{branch}" in remote_out
+        commit_lines = [line.strip() for line in log_out.splitlines() if line.strip()]
+        changed_files = [
+            line.split("|")[0].strip()
+            for line in diff_out.splitlines()
+            if "|" in line
+        ]
+        infos.append(
+            BranchInfo(
+                issue_number=issue_number,
+                title=title,
+                branch_name=branch,
+                commit_lines=commit_lines,
+                changed_files=changed_files,
+                on_remote=on_remote,
+            )
+        )
+    return infos
+
+
+def build_workspace_context(prepare_results: list[WorkspacePrepareResult] | None) -> str:
+    """Summarize workspace preparation results for the agent context."""
+    if not prepare_results:
+        return ""
+    blocks: list[str] = []
+    for result in prepare_results:
+        if not result.branch_name:
+            continue
+        if result.rebase_conflicts:
+            file_list = ", ".join(result.conflicting_files) or "unknown files"
+            blocks.append(
+                f"WARNING: Branch {result.branch_name} has merge conflicts with latest main.\n"
+                "You must resolve the conflicts before continuing work.\n"
+                f"The conflicting files are: {file_list}"
+            )
+        elif result.rebased:
+            blocks.append(f"Workspace prep: branch {result.branch_name} was rebased onto latest main.")
+    if not blocks:
+        return ""
+    return "\n--- Workspace Preparation ---\n" + "\n\n".join(blocks) + "\n---\n"
+
+
 def build_branch_context(
     repo_config: GitHubRepoConfig | None,
     clone_path: Path | None,
@@ -59,50 +151,24 @@ def build_branch_context(
     if not repo_config or not clone_path or not (clone_path / ".git").exists():
         return ""
 
-    issues = list_issues_for_dev(repo_config, agent_type)
-    in_progress = [(num, title) for num, title, is_ip in issues if is_ip]
-    if not in_progress:
+    branch_infos = list_in_progress_branch_infos(repo_config, clone_path, agent_type)
+    if not branch_infos:
         return ""
 
     blocks = []
-    for issue_number, title in in_progress:
-        branch = _find_matching_branch(clone_path, issue_number)
-        if not branch:
-            continue
+    for info in branch_infos:
+        commit_summary = ", ".join(c.split(" ", 1)[-1][:50] for c in info.commit_lines[:5])
+        if len(info.commit_lines) > 5:
+            commit_summary += f" (+{len(info.commit_lines) - 5} more)"
 
-        base = DEFAULT_BASE
-        code, _ = _run_git(clone_path, "rev-parse", "--verify", "main")
-        if code != 0:
-            base = "origin/main"
+        files_summary = ", ".join(info.changed_files[:5]) if info.changed_files else "none"
+        if len(info.changed_files) > 5:
+            files_summary += f", ... (+{len(info.changed_files) - 5} more)"
 
-        code, log_out = _run_git(clone_path, "log", f"{base}..{branch}", "--oneline")
-        if code != 0:
-            log_out = ""
-
-        code, diff_out = _run_git(clone_path, "diff", f"{base}..{branch}", "--stat")
-        if code != 0:
-            diff_out = ""
-
-        code, remote_out = _run_git(clone_path, "branch", "-r")
-        on_remote = code == 0 and f"origin/{branch}" in remote_out
-
-        commit_lines = [l.strip() for l in log_out.splitlines() if l.strip()]
-        commit_summary = ", ".join(c.split(" ", 1)[-1][:50] for c in commit_lines[:5])
-        if len(commit_lines) > 5:
-            commit_summary += f" (+{len(commit_lines) - 5} more)"
-
-        files = []
-        for line in diff_out.splitlines():
-            if "|" in line:
-                files.append(line.split("|")[0].strip())
-        files_summary = ", ".join(files[:5]) if files else "none"
-        if len(files) > 5:
-            files_summary += f", ... (+{len(files) - 5} more)"
-
-        status = "Pushed to remote" if on_remote else "NOT pushed"
+        status = "Pushed to remote" if info.on_remote else "NOT pushed"
         blocks.append(
-            f"Issue #{issue_number} ({title}): branch {branch} exists locally.\n"
-            f"  Commits: {len(commit_lines)} - {commit_summary}\n"
+            f"Issue #{info.issue_number} ({info.title}): branch {info.branch_name} exists locally.\n"
+            f"  Commits: {len(info.commit_lines)} - {commit_summary}\n"
             f"  Files changed: {files_summary}\n"
             f"  Status: {status}. Checkout branch, continue implementation, then push and open PR."
         )

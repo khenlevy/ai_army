@@ -22,7 +22,11 @@ from ai_army.tools import (
     CreatePullRequestTool,
     GitBranchStatusTool,
     GitCommitTool,
+    GitForcePushTool,
     GitPushTool,
+    GitRebaseAbortTool,
+    GitRebaseContinueTool,
+    GitRebaseTool,
     ListDirTool,
     ListOpenIssuesTool,
     ReadFileTool,
@@ -56,6 +60,7 @@ def _create_dev_agent(
     *,
     repo_path: str | None = None,
     repo_config: GitHubRepoConfig | None = None,
+    include_conflict_tools: bool = False,
 ) -> Agent:
     """Create a development agent for the given role and label filter.
 
@@ -66,6 +71,31 @@ def _create_dev_agent(
     llm = _get_llm()
     agent_config = config[agent_key]
 
+    tools = [
+        RepoStructureTool(repo_path=repo_path),
+        ListDirTool(repo_path=repo_path),
+        ReadFileTool(repo_path=repo_path),
+        SearchCodebaseTool(repo_path=repo_path, repo_config=repo_config),
+        WriteFileTool(repo_path=repo_path),
+        ListOpenIssuesTool(repo_config=repo_config),
+        GitBranchStatusTool(repo_path=repo_path),
+        CheckoutBranchTool(repo_path=repo_path),
+        CreateLocalBranchTool(repo_path=repo_path),
+        GitCommitTool(repo_path=repo_path, agent_name=agent_config["role"]),
+        GitPushTool(repo_path=repo_path),
+        CreatePullRequestTool(repo_config=repo_config),
+        UpdateIssueTool(repo_config=repo_config),
+    ]
+    if include_conflict_tools:
+        tools.extend(
+            [
+                GitRebaseTool(repo_path=repo_path),
+                GitRebaseContinueTool(repo_path=repo_path, agent_name=agent_config["role"]),
+                GitRebaseAbortTool(repo_path=repo_path),
+                GitForcePushTool(repo_path=repo_path),
+            ]
+        )
+
     return Agent(
         role=agent_config["role"],
         goal=agent_config["goal"],
@@ -73,25 +103,19 @@ def _create_dev_agent(
         llm=llm,
         verbose=True,
         max_iter=40,
-        tools=[
-            RepoStructureTool(repo_path=repo_path),
-            ListDirTool(repo_path=repo_path),
-            ReadFileTool(repo_path=repo_path),
-            SearchCodebaseTool(repo_path=repo_path, repo_config=repo_config),
-            WriteFileTool(repo_path=repo_path),
-            ListOpenIssuesTool(repo_config=repo_config),
-            GitBranchStatusTool(repo_path=repo_path),
-            CheckoutBranchTool(repo_path=repo_path),
-            CreateLocalBranchTool(repo_path=repo_path),
-            GitCommitTool(repo_path=repo_path, agent_name=agent_config["role"]),
-            GitPushTool(repo_path=repo_path),
-            CreatePullRequestTool(repo_config=repo_config),
-            UpdateIssueTool(repo_config=repo_config),
-        ],
+        tools=tools,
     )
 
 
-def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Crew:
+def create_dev_crew(
+    agent_type: str = "frontend",
+    crew_context: str = "",
+    *,
+    repo_config: GitHubRepoConfig | None = None,
+    clone_path: Path | None = None,
+    workspace_context: str = "",
+    conflict_pr: dict | None = None,
+) -> Crew:
     """Create the Development Crew for a specific agent type.
 
     Clones the target repo (from GITHUB_TARGET_REPO or first GITHUB_REPO_N) into
@@ -109,16 +133,15 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
     agent_key = agent_map.get(agent_type, "frontend_agent")
     label_filter = agent_type if agent_type in agent_map else "frontend"
 
-    repo_config: GitHubRepoConfig | None = None
-    clone_path = None
-    repos = get_github_repos()
-    if repos:
-        repo_config = repos[0]
-        clone_path = ensure_repo_cloned(repo_config)
-        if not clone_path:
-            logger.warning("Dev Crew: repo clone failed for %s", repo_config.repo)
-    else:
-        logger.warning("Dev Crew: no GitHub repos configured")
+    if repo_config is None and clone_path is None:
+        repos = get_github_repos()
+        if repos:
+            repo_config = repos[0]
+            clone_path = ensure_repo_cloned(repo_config)
+            if not clone_path:
+                logger.warning("Dev Crew: repo clone failed for %s", repo_config.repo)
+        else:
+            logger.warning("Dev Crew: no GitHub repos configured")
     repo_path_str = str(clone_path) if clone_path else None
 
     logger.debug("create_dev_crew: agent_type=%s, repo_path=%s", agent_type, repo_path_str or "none")
@@ -127,6 +150,7 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
         label_filter,
         repo_path=repo_path_str,
         repo_config=repo_config,
+        include_conflict_tools=True,
     )
 
     branch_context = (
@@ -136,11 +160,49 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
     )
     crew_context_block = ""
     if branch_context:
-        crew_context_block = branch_context + "\n"
+        crew_context_block += branch_context + "\n"
+    if workspace_context.strip():
+        crew_context_block += workspace_context.strip() + "\n"
     if crew_context.strip():
         crew_context_block += f"\n--- Context from previous crews ---\n{crew_context}\n---\n\n"
     if not crew_context_block.strip():
         crew_context_block = "\n"
+
+    if conflict_pr:
+        conflict_task = Task(
+            description=(
+                crew_context_block
+                + "Your open PR "
+                + f"#{conflict_pr['pr_number']} on branch {conflict_pr['branch_name']} has merge conflicts with {conflict_pr['base_branch']}. "
+                + f"The PR was originally for issue #{conflict_pr['issue_number']}: {conflict_pr['issue_title']}.\n\n"
+                "Your job is to resolve the conflicts:\n"
+                f"1. Use Checkout Branch to switch to {conflict_pr['branch_name']}\n"
+                f"2. Use Git Rebase with base_ref='{conflict_pr['base_branch']}' to attempt a rebase\n"
+                "3. If the rebase reports conflicts:\n"
+                "   a. Read each conflicting file to understand both sides of the conflict\n"
+                f"   b. The conflict markers (<<<<<<< HEAD, =======, >>>>>>> {conflict_pr['branch_name']}) show:\n"
+                f"      - HEAD side: changes from {conflict_pr['base_branch']} (other merged PRs)\n"
+                f"      - {conflict_pr['branch_name']} side: your original changes\n"
+                "   c. Resolve each file by keeping the correct combination of both sides\n"
+                "   d. Write the resolved file without any conflict markers\n"
+                "   e. Use Git Rebase Continue after resolving the files\n"
+                f"4. After all conflicts are resolved, use Git Force Push with branch='{conflict_pr['branch_name']}' to update the existing PR branch\n"
+                "5. Verify the branch is clean and ready to merge\n\n"
+                "Do NOT create a new PR. Do NOT change the scope of the original work. "
+                "Only resolve the merge conflicts so the existing PR can be merged cleanly."
+            ),
+            expected_output=(
+                "Summary: conflicting PR branch rebased or manually resolved, force-pushed, "
+                "and ready to merge."
+            ),
+            agent=agent,
+        )
+        return Crew(
+            agents=[agent],
+            tasks=[conflict_task],
+            process=Process.sequential,
+            verbose=True,
+        )
 
     # ReAct-style: Think task first - plan before acting
     # Label filter ensures no overlap: frontend agent only sees frontend, backend only backend, fullstack only fullstack
@@ -162,6 +224,7 @@ def create_dev_crew(agent_type: str = "frontend", crew_context: str = "") -> Cre
     impl_task = Task(
         description=(
             "Execute the plan. If continuing an existing branch: use Checkout Branch first (do NOT use Create Local Branch for existing branches). "
+            "If workspace preparation reported merge conflicts with main, resolve them before coding by using Git Rebase, Read File, Write File, and Git Rebase Continue. "
             "For new work: FIRST use Update GitHub Issue to add 'in-progress' to the chosen issue (labels only; do NOT add comments), "
             "then Create Local Branch. Use Search Codebase (RAG semantic search) with your planned query or issue number to find relevant code "
             "before exploring. Use Repo Structure, List Directory, Read File, Write File to implement. "
@@ -192,9 +255,20 @@ class DevCrew:
         agent_type: str = "frontend",
         inputs: dict | None = None,
         crew_context: str = "",
+        repo_config: GitHubRepoConfig | None = None,
+        clone_path: Path | None = None,
+        workspace_context: str = "",
+        conflict_pr: dict | None = None,
     ) -> str:
         """Run the Development Crew for the given agent type."""
-        crew = create_dev_crew(agent_type=agent_type, crew_context=crew_context)
+        crew = create_dev_crew(
+            agent_type=agent_type,
+            crew_context=crew_context,
+            repo_config=repo_config,
+            clone_path=clone_path,
+            workspace_context=workspace_context,
+            conflict_pr=conflict_pr,
+        )
         result = crew.kickoff(inputs=inputs or {})
         logger.info("DevCrew: kickoff completed")
         return result

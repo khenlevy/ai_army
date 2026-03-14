@@ -58,8 +58,11 @@ def run_team_lead_crew():
 
 def run_dev_crew(agent_type: str):
     """Run Development Crew once."""
+    from ai_army.config import get_github_repos
     from ai_army.crews.dev_crew import DevCrew
     from ai_army.memory.context_store import get_context_store
+    from ai_army.repo_clone import ensure_repo_cloned
+    from ai_army.workspace_manager import workspace_lock
 
     store = get_context_store()
     store.load()
@@ -67,7 +70,16 @@ def run_dev_crew(agent_type: str):
     if crew_context:
         logger.info("Dev Crew: using context from previous crews (%d chars)", len(crew_context))
     logger.info("Starting Dev Crew (agent: %s)", agent_type)
-    result = DevCrew.kickoff(agent_type=agent_type, crew_context=crew_context)
+    repos = get_github_repos()
+    if repos:
+        clone_path = ensure_repo_cloned(repos[0])
+        if clone_path:
+            with workspace_lock(clone_path):
+                result = DevCrew.kickoff(agent_type=agent_type, crew_context=crew_context)
+        else:
+            result = DevCrew.kickoff(agent_type=agent_type, crew_context=crew_context)
+    else:
+        result = DevCrew.kickoff(agent_type=agent_type, crew_context=crew_context)
     store.add("dev", str(result))
     logger.info("Dev Crew finished (result len=%d)", len(str(result)))
     return result

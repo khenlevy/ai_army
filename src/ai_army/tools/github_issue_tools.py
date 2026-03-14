@@ -1,13 +1,16 @@
 """GitHub issue tools: Create, Update, List Open. CrewAI tools wrapping PyGithub."""
 
 import logging
+from pathlib import PurePosixPath
 from typing import Any, Type
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from ai_army.config.settings import GitHubRepoConfig
+from ai_army.repo_clone import ensure_repo_cloned
 from ai_army.tools.github_helpers import _get_repo_from_config
+from ai_army.tools.repo_file_tools import RepoStructureTool
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +25,43 @@ def _format_issue_body(spec) -> str:
     if spec.technical_notes:
         parts.append(f"\n## Technical Notes\n{spec.technical_notes}")
     return "\n".join(parts).strip()
+
+
+def _normalize_scope_path(path: str) -> str:
+    """Normalize a scope path for overlap detection."""
+    normalized = str(PurePosixPath(path.strip().strip("/")))
+    return "" if normalized == "." else normalized
+
+
+def _paths_overlap(left: str, right: str) -> bool:
+    """Return True when two scope paths overlap."""
+    left_norm = _normalize_scope_path(left)
+    right_norm = _normalize_scope_path(right)
+    if not left_norm or not right_norm:
+        return False
+    return (
+        left_norm == right_norm
+        or left_norm.startswith(f"{right_norm}/")
+        or right_norm.startswith(f"{left_norm}/")
+    )
+
+
+def _scope_sets_overlap(left: list[str], right: list[str]) -> bool:
+    """Return True when any path in two file-scope sets overlaps."""
+    return any(_paths_overlap(left_path, right_path) for left_path in left for right_path in right)
+
+
+def _format_issue_meta(*, file_scope: list[str], depends_on: int | None, priority: int) -> str:
+    """Format the hidden ai-army metadata block for child issues."""
+    scope_lines = ", ".join(f'"{path}"' for path in file_scope)
+    depends_on_value = f'"#{depends_on}"' if depends_on else "null"
+    return (
+        "<!-- ai-army-meta\n"
+        f"file_scope: [{scope_lines}]\n"
+        f"depends_on: {depends_on_value}\n"
+        f"priority: {priority}\n"
+        "-->"
+    )
 
 
 class CreateIssueInput(BaseModel):
@@ -255,12 +295,28 @@ class BreakdownAndCreateSubIssuesTool(BaseTool):
             logger.warning("Could not fetch issue #%s: %s", parent_issue_number, e)
             return f"Error fetching issue #{parent_issue_number}: {e}"
 
+        clone_path = ensure_repo_cloned(self._repo_config) if self._repo_config else None
+        repo_structure = ""
+        if clone_path:
+            repo_structure = RepoStructureTool(repo_path=str(clone_path))._run(max_depth=2)
+
         prompt = f"""Break down this feature issue into implementable sub-tasks.
 
 Issue #{parent_issue_number}: {issue_title}
 Body: {issue_body}
 
-Produce sub_tasks with title, body, and label (frontend, backend, or fullstack) for each sub-task.
+Codebase layout:
+{repo_structure or "(repo structure unavailable)"}
+
+Rules:
+- Each sub-task MUST include title, body, label, file_scope, depends_on, and priority.
+- file_scope must list the directories or files this sub-task is expected to change.
+- Sub-tasks MUST NOT have overlapping file_scope entries. If two tasks need the same file, merge them or assign them to the same label.
+- Prefer splitting along natural boundaries: frontend UI components vs backend API routes vs shared schemas/integration.
+- depends_on must be the 0-based index of a prerequisite sub-task, or null if independent.
+- Order sub-tasks so foundations (data models, API endpoints) come before consumers (UI screens, integrations).
+
+Produce sub_tasks with title, body, label (frontend, backend, or fullstack), file_scope, depends_on, and priority for each sub-task.
 Set parent_issue to {parent_issue_number}."""
         try:
             chain = breakdown_chain()
@@ -278,34 +334,62 @@ Set parent_issue to {parent_issue_number}."""
             logger.warning("BreakdownAndCreateSubIssuesTool: no sub-tasks produced for issue #%s", parent_issue_number)
             return f"No sub-tasks produced for issue #{parent_issue_number}"
 
-        import re
+        for index, sub_task in enumerate(spec.sub_tasks):
+            if sub_task.depends_on is not None and not (0 <= sub_task.depends_on < index):
+                logger.warning(
+                    "BreakdownAndCreateSubIssuesTool: invalid dependency %s for sub-task %d",
+                    sub_task.depends_on,
+                    index,
+                )
+                return (
+                    "Error producing breakdown: sub-task dependencies must point to an earlier "
+                    "sub-task so execution order is well-defined."
+                )
 
-        create_tool = CreateIssueTool(repo_config=self._repo_config)
+        for index, sub_task in enumerate(spec.sub_tasks):
+            for prior_index in range(index):
+                prior = spec.sub_tasks[prior_index]
+                if prior.label == sub_task.label:
+                    continue
+                if _scope_sets_overlap(prior.file_scope, sub_task.file_scope):
+                    logger.warning(
+                        "BreakdownAndCreateSubIssuesTool: overlapping scope between task %d (%s) and %d (%s); aligning labels",
+                        prior_index,
+                        prior.label,
+                        index,
+                        sub_task.label,
+                    )
+                    sub_task.label = prior.label
+
         update_tool = UpdateIssueTool(repo_config=self._repo_config)
         created: list[str] = []
         sub_issue_nums: list[int] = []
 
-        for st in spec.sub_tasks:
-            body = st.body
-            if f"Parent: #{parent_issue_number}" not in body and "Parent:" not in body:
-                body = f"Parent: #{parent_issue_number}\n\n{body}".strip()
-            result = create_tool._run(
-                title=st.title,
-                body=body,
-                labels=[st.label],
+        for index, st in enumerate(spec.sub_tasks):
+            depends_on_issue: int | None = None
+            if st.depends_on is not None and 0 <= st.depends_on < len(sub_issue_nums):
+                depends_on_issue = sub_issue_nums[st.depends_on]
+            metadata_block = _format_issue_meta(
+                file_scope=st.file_scope,
+                depends_on=depends_on_issue,
+                priority=st.priority,
             )
-            created.append(result)
-            match = re.search(r"#(\d+)", result)
-            if match:
-                sub_issue_nums.append(int(match.group(1)))
+            body_parts = [f"Parent: #{parent_issue_number}", st.body.strip(), metadata_block]
+            body = "\n\n".join(part for part in body_parts if part)
+            issue = repo.create_issue(title=st.title, body=body, labels=[st.label])
+            created.append(f"Created issue #{issue.number}: {st.title} (labels: ['{st.label}'])")
+            sub_issue_nums.append(issue.number)
 
         if len(sub_issue_nums) == len(spec.sub_tasks):
             sub_list = "\n".join(
-                f"- #{n} {st.title} ({st.label})"
+                f"- #{n} {st.title} ({st.label}) | scope={st.file_scope} | depends_on={st.depends_on} | priority={st.priority}"
                 for n, st in zip(sub_issue_nums, spec.sub_tasks, strict=True)
             )
         else:
-            sub_list = "\n".join(f"- {st.title} ({st.label})" for st in spec.sub_tasks)
+            sub_list = "\n".join(
+                f"- {st.title} ({st.label}) | scope={st.file_scope} | depends_on={st.depends_on} | priority={st.priority}"
+                for st in spec.sub_tasks
+            )
         comment = f"[Team Lead]\n\nBroken down into sub-tasks:\n{sub_list}"
         update_tool._run(
             issue_number=parent_issue_number,

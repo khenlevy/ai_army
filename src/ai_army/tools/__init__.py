@@ -29,7 +29,11 @@ from ai_army.tools.git_branch_tools import (
 from ai_army.tools.git_tools import (
     CreateLocalBranchTool,
     GitCommitTool,
+    GitForcePushTool,
     GitPushTool,
+    GitRebaseAbortTool,
+    GitRebaseContinueTool,
+    GitRebaseTool,
 )
 from ai_army.tools.repo_file_tools import (
     ListDirTool,
@@ -57,7 +61,11 @@ __all__ = [
     "CreateLocalBranchTool",
     "GitBranchStatusTool",
     "GitCommitTool",
+    "GitForcePushTool",
     "GitPushTool",
+    "GitRebaseAbortTool",
+    "GitRebaseContinueTool",
+    "GitRebaseTool",
     "ListDirTool",
     "ReadFileTool",
     "RepoStructureTool",

@@ -14,6 +14,18 @@ class SubTaskSpec(BaseModel):
         ...,
         description="Label indicating which agent type handles this task",
     )
+    file_scope: list[str] = Field(
+        default_factory=list,
+        description="Directories or files this sub-task is expected to change.",
+    )
+    depends_on: int | None = Field(
+        default=None,
+        description="Index of a prerequisite sub-task (0-based), or null if independent.",
+    )
+    priority: int = Field(
+        default=100,
+        description="Execution priority where lower numbers run first.",
+    )
 
 
 class BreakdownSpec(BaseModel):
