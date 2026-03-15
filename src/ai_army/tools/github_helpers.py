@@ -143,6 +143,24 @@ def count_issues_ready_for_breakdown(repo_config: GitHubRepoConfig | None = None
         return 0
 
 
+def count_prioritized_needing_enrichment(repo_config: GitHubRepoConfig | None = None) -> int:
+    """Count open issues with 'prioritized' but NOT 'ready-for-breakdown'. GitHub API only."""
+    try:
+        repo = _get_repo_from_config(repo_config)
+        issues = list(repo.get_issues(state="open", labels=["prioritized"]))
+        count = 0
+        for i in issues:
+            if i.pull_request:
+                continue
+            label_names = {l.name for l in (i.labels or [])}
+            if "ready-for-breakdown" not in label_names:
+                count += 1
+        return count
+    except Exception as e:
+        logger.warning("count_prioritized_needing_enrichment failed: %s", e)
+        return 0
+
+
 def _issue_linked_in_pr_body(pr_body: str | None, issue_number: int) -> bool:
     """Check if PR body contains a GitHub-closing reference for the given issue."""
     if not pr_body:

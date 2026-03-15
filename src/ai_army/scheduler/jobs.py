@@ -16,11 +16,13 @@ from ai_army.memory.context_store import get_context_store
 from ai_army.rag.prebuild import refresh_indexes
 from ai_army.rag.runtime_state import agent_window_open, load_runtime_state, repo_key_for_config
 from ai_army.repo_clone import ensure_repo_cloned
-from ai_army.scheduler.token_check import run_if_tokens_available
+from ai_army.scheduler.token_check import invalidate_token_cache, run_if_tokens_available
 from ai_army.tools.github_helpers import (
     count_issues_for_dev,
     count_issues_ready_for_breakdown,
+    count_prioritized_needing_enrichment,
     find_conflicting_agent_prs,
+    get_open_issue_count,
     get_repo_from_config,
     list_issues_for_dev,
 )
@@ -91,41 +93,54 @@ def _repo_ready(
 def run_rag_refresh_job() -> None:
     """Refresh published RAG snapshots and validate readiness before agent windows."""
     logger.info("RAG refresh starting")
+    invalidate_token_cache()
     refresh_indexes()
     logger.info("RAG refresh completed")
     _log_next_run("rag_refresh")
 
 
+OPEN_ISSUE_CAP = 8
+
+
 def run_product_crew_job() -> None:
-    """Run Product Crew for each configured repo. Skips when API limit reached."""
+    """Run Product Crew for each configured repo. Skips when API limit reached or idle (backlog full, nothing to enrich)."""
     repos = get_github_repos()
     if not repos:
         logger.warning("No GitHub repos configured, skipping job")
         return
 
+    repo_config = repos[0]
+    if not _repo_ready(repo_config, require_search=True, require_issue_ops=True):
+        _log_next_run("product_crew")
+        return
+
+    repo = get_repo_from_config(repo_config)
+    open_count = get_open_issue_count(repo)
+    prioritized_needing = count_prioritized_needing_enrichment(repo_config)
+    if open_count >= OPEN_ISSUE_CAP and prioritized_needing == 0:
+        logger.info(
+            "Product Crew: backlog full (%d issues) and no prioritized issues needing enrichment, skipping",
+            open_count,
+        )
+        _log_next_run("product_crew")
+        return
+
     def _run() -> None:
-        try:
-            lock = workspace_lock(clone_path)
-            lock.__enter__()
-        except TimeoutError as exc:
-            logger.info("Dev Crew (%s): skipping because shared clone is busy: %s", agent_type, exc)
-            _log_next_run(f"dev_crew_{agent_type}")
-            return
         store = get_context_store()
         store.load()
         crew_context = store.get_summary(exclude="product")
         logger.info("Product Crew: context from previous crews (%d chars)", len(crew_context))
         logger.info("GitHub repos for this run: %s", ", ".join(r.repo for r in repos))
-        for repo_config in repos:
-            if not _repo_ready(repo_config, require_search=True, require_issue_ops=True):
+        for cfg in repos:
+            if not _repo_ready(cfg, require_search=True, require_issue_ops=True):
                 continue
             try:
-                logger.info("Product Crew starting | repo: %s", repo_config.repo)
-                result = ProductCrew.kickoff(repo_config=repo_config, crew_context=crew_context)
+                logger.info("Product Crew starting | repo: %s", cfg.repo)
+                result = ProductCrew.kickoff(repo_config=cfg, crew_context=crew_context)
                 store.add("product", str(result))
-                logger.info("Product Crew done successfully | repo: %s", repo_config.repo)
+                logger.info("Product Crew done successfully | repo: %s", cfg.repo)
             except Exception as e:
-                logger.exception("Product Crew failed | repo: %s | %s", repo_config.repo, e)
+                logger.exception("Product Crew failed | repo: %s | %s", cfg.repo, e)
         _log_next_run("product_crew")
 
     run_if_tokens_available(_run)

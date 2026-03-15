@@ -2,9 +2,11 @@
 
 Skips execution when rate limit (429) or quota is reached.
 Uses count_tokens (zero cost) when available, falls back to minimal completion.
+Caches result for pipeline duration to avoid redundant API calls.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from ai_army.config.llm_config import get_llm_model
@@ -12,14 +14,31 @@ from ai_army.config.llm_config import get_llm_model
 logger = logging.getLogger(__name__)
 
 RATE_LIMIT_STATUS = 429
+CACHE_TTL_MINUTES = 55
+
+_cached_tokens_available: bool | None = None
+_cache_valid_until: datetime | None = None
+
+
+def invalidate_token_cache() -> None:
+    """Invalidate the token availability cache. Call when RAG refresh runs (start of new pipeline)."""
+    global _cached_tokens_available, _cache_valid_until
+    _cached_tokens_available = None
+    _cache_valid_until = None
 
 
 def has_available_tokens() -> bool:
     """Check if Anthropic API has available capacity (no rate limit).
 
+    Caches result for pipeline duration (55 min). Invalidate via invalidate_token_cache() when RAG refresh runs.
     Tries count_tokens first (no token cost). Falls back to minimal completion if needed.
     Returns False if we get 429 or auth errors.
     """
+    global _cached_tokens_available, _cache_valid_until
+    now = datetime.now(timezone.utc)
+    if _cache_valid_until is not None and now < _cache_valid_until and _cached_tokens_available is not None:
+        return _cached_tokens_available
+
     try:
         import anthropic
 
@@ -38,6 +57,8 @@ def has_available_tokens() -> bool:
                 max_tokens=1,
                 messages=[{"role": "user", "content": "Hi"}],
             )
+        _cached_tokens_available = True
+        _cache_valid_until = now + timedelta(minutes=CACHE_TTL_MINUTES)
         return True
     except Exception as e:
         err_name = type(e).__name__
@@ -45,6 +66,8 @@ def has_available_tokens() -> bool:
             logger.warning("Tokens/rate limit reached - skipping this run")
         else:
             logger.warning("API check failed - skipping run: %s", e)
+        _cached_tokens_available = False
+        _cache_valid_until = now + timedelta(minutes=CACHE_TTL_MINUTES)
         return False
 
 
