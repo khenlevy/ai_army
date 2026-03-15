@@ -25,6 +25,7 @@ def invalidate_token_cache() -> None:
     global _cached_tokens_available, _cache_valid_until
     _cached_tokens_available = None
     _cache_valid_until = None
+    logger.info("Token check: cache invalidated (RAG refresh)")
 
 
 def has_available_tokens() -> bool:
@@ -37,8 +38,10 @@ def has_available_tokens() -> bool:
     global _cached_tokens_available, _cache_valid_until
     now = datetime.now(timezone.utc)
     if _cache_valid_until is not None and now < _cache_valid_until and _cached_tokens_available is not None:
+        logger.debug("Token check: using cached result (valid until %s)", _cache_valid_until.isoformat())
         return _cached_tokens_available
 
+    logger.info("Token check: fresh API call (cache invalid or expired)")
     try:
         import anthropic
 

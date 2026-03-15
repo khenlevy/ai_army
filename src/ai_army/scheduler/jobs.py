@@ -119,7 +119,7 @@ def run_product_crew_job() -> None:
     prioritized_needing = count_prioritized_needing_enrichment(repo_config)
     if open_count >= OPEN_ISSUE_CAP and prioritized_needing == 0:
         logger.info(
-            "Product Crew: backlog full (%d issues) and no prioritized issues needing enrichment, skipping",
+            "Product Crew: cost-reduction skip - backlog full (%d issues) and no prioritized issues needing enrichment",
             open_count,
         )
         _log_next_run("product_crew")
@@ -387,11 +387,13 @@ def run_merge_crew_job() -> None:
         return
 
     repo = get_repo_from_config(repo_config)
-    open_prs = list(repo.get_pulls(state="open")[:1])
+    open_prs = list(repo.get_pulls(state="open"))
     if not open_prs:
         logger.info("Merge crew: no open PRs, skipping")
         _log_next_run("merge_crew")
         return
+
+    logger.info("Merge crew: %d open PR(s) to process", len(open_prs))
 
     def _run() -> None:
         try:
