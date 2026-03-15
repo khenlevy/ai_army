@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Pre-deploy cleanup: ensure sufficient disk before Docker pull.
+# Pre-deploy cleanup: ensure sufficient disk before Docker load.
 # Root cause of "no space left": disk 100% full.
-# Run on droplet before docker pull. Idempotent.
+# Run on droplet before docker load. Idempotent.
 set -e
 
-MIN_AVAIL_KB=$((5 * 1024 * 1024))  # 5GB (pull needs ~2-3GB)
+MIN_AVAIL_KB=$((5 * 1024 * 1024))  # 5GB (load needs ~2-3GB)
 APP_PATH="${RELEASE_APP_PATH:-/root/ai_army}"
+WORKSPACE="${APP_PATH}/.ai_army_workspace"
 
 avail_kb() {
   df -k / | tail -1 | awk '{print $4}'
@@ -18,6 +19,34 @@ if [ -d "$APP_PATH" ]; then
     rm -f "$f" && echo "Removed old tar: $f"
   done
 fi
+
+# Prune old RAG snapshots; keep only the active one. Each snapshot ~800MB-1GB, 10+ can accumulate.
+if [ -d "$WORKSPACE/.ai_army_index" ]; then
+  for repo_dir in "$WORKSPACE/.ai_army_index"/*/; do
+    [ -d "$repo_dir" ] || continue
+    snapshots_dir="${repo_dir}snapshots"
+    [ -d "$snapshots_dir" ] || continue
+    active_json="${repo_dir}active_snapshot.json"
+    if [ -f "$active_json" ]; then
+      active_version=$(grep -o '"snapshot_version": "[^"]*"' "$active_json" 2>/dev/null | cut -d'"' -f4)
+      if [ -n "$active_version" ]; then
+        for snap in "$snapshots_dir"/*/; do
+          [ -d "$snap" ] || continue
+          snap_name=$(basename "$snap")
+          if [ "$snap_name" != "$active_version" ]; then
+            rm -rf "$snap" && echo "Removed old RAG snapshot: $snap_name"
+          fi
+        done
+      fi
+    fi
+  done
+fi
+
+# Clear apt cache (~200MB)
+sudo apt-get clean 2>/dev/null || true
+
+# Trim journal logs to last 7 days (~180MB -> ~50MB)
+sudo journalctl --vacuum-time=7d 2>/dev/null || true
 
 AVAIL_KB=$(avail_kb)
 if [ "$AVAIL_KB" -lt "$MIN_AVAIL_KB" ]; then
