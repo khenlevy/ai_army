@@ -85,6 +85,47 @@ def run_dev_crew(agent_type: str):
     return result
 
 
+def run_merge_crew():
+    """Run Merge Crew once."""
+    from ai_army.config import get_github_repos
+    from ai_army.crews.merge_crew import MergeCrew
+    from ai_army.memory.context_store import get_context_store
+    from ai_army.repo_clone import ensure_repo_cloned
+    from ai_army.workspace_manager import cleanup_workspace, fetch_origin, prepare_workspace, workspace_lock
+
+    store = get_context_store()
+    store.load()
+    crew_context = store.get_summary(exclude="merge")
+    if crew_context:
+        logger.info("Merge Crew: using context from previous crews (%d chars)", len(crew_context))
+    logger.info("Starting Merge Crew")
+    repos = get_github_repos()
+    if repos:
+        clone_path = ensure_repo_cloned(repos[0])
+        if clone_path:
+            try:
+                with workspace_lock(clone_path):
+                    prepare_workspace(clone_path)
+                    fetch_origin(clone_path)
+                    result = MergeCrew.kickoff(
+                        repo_config=repos[0],
+                        clone_path=clone_path,
+                        crew_context=crew_context,
+                    )
+            finally:
+                try:
+                    cleanup_workspace(clone_path)
+                except Exception as exc:
+                    logger.warning("Merge Crew cleanup failed: %s", exc)
+        else:
+            result = MergeCrew.kickoff(repo_config=repos[0], crew_context=crew_context)
+    else:
+        result = MergeCrew.kickoff(crew_context=crew_context)
+    store.add("merge", str(result))
+    logger.info("Merge Crew finished (result len=%d)", len(str(result)))
+    return result
+
+
 def run_qa_crew():
     """Run QA Crew once."""
     from ai_army.crews.qa_crew import QACrew
@@ -142,6 +183,9 @@ def main():
         help="Agent type",
     )
 
+    # merge - run Merge Crew once
+    subparsers.add_parser("merge", help="Run Merge Crew once (merge PRs, resolve conflicts)")
+
     # qa - run QA Crew once
     subparsers.add_parser("qa", help="Run QA Crew once")
 
@@ -162,6 +206,9 @@ def main():
         print(result)
     elif args.command == "dev":
         result = run_dev_crew(agent_type=getattr(args, "type", "frontend"))
+        print(result)
+    elif args.command == "merge":
+        result = run_merge_crew()
         print(result)
     elif args.command == "qa":
         result = run_qa_crew()

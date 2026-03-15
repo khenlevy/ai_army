@@ -212,6 +212,11 @@ def cleanup_workspace(clone_path: Path) -> str:
     return message
 
 
+def fetch_origin(clone_path: Path) -> str:
+    """Fetch all refs from origin so remote branches are available for checkout."""
+    return _run_or_raise(clone_path, "fetch", "origin", timeout=120)
+
+
 def force_push_branch(clone_path: Path, branch_name: str) -> str:
     """Force push a rebased branch with safety."""
     return _run_or_raise(

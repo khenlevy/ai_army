@@ -25,6 +25,7 @@ from ai_army.tools.github_issue_tools import (
 from ai_army.tools.github_pr_tools import (
     CreateBranchTool,
     CreatePullRequestTool,
+    GetPullRequestDetailsTool,
     ListPullRequestsTool,
     MergePullRequestTool,
     ReviewPullRequestTool,
@@ -57,6 +58,7 @@ __all__ = [
     "UpdateIssueTool",
     "ListOpenIssuesTool",
     "CreatePullRequestTool",
+    "GetPullRequestDetailsTool",
     "ListPullRequestsTool",
     "MergePullRequestTool",
     "ReviewPullRequestTool",

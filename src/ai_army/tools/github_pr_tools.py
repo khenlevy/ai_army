@@ -8,7 +8,7 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from ai_army.config.settings import GitHubRepoConfig
-from ai_army.tools.github_helpers import _get_repo_from_config
+from ai_army.tools.github_helpers import _get_repo_from_config, _refresh_mergeable
 from ai_army.tools.github_issue_tools import UpdateIssueTool
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,57 @@ class ListPullRequestsTool(BaseTool):
             result.append(f"#{pr.number}: {pr.title} | {pr.head.ref} -> {pr.base.ref} | {pr.user.login}")
         logger.info("ListPullRequestsTool: found %d PRs (state=%s)", len(result), state)
         return "\n".join(result) if result else "No pull requests found"
+
+
+class GetPullRequestDetailsInput(BaseModel):
+    """Input schema for GetPullRequestDetailsTool."""
+
+    pr_number: int = Field(..., description="Pull request number to fetch details for")
+
+
+class GetPullRequestDetailsTool(BaseTool):
+    """Fetch rich PR context: mergeable status, files changed, linked issue, for merge/conflict decisions."""
+
+    name: str = "Get Pull Request Details"
+    description: str = (
+        "Fetch full details for a pull request: title, body, head/base branches, mergeable status, "
+        "files changed, and linked issue (Closes #N). Use to decide merge vs conflict resolution."
+    )
+    args_schema: Type[BaseModel] = GetPullRequestDetailsInput
+
+    def __init__(self, repo_config: GitHubRepoConfig | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_config = repo_config
+
+    def _run(self, pr_number: int) -> str:
+        repo = _get_repo_from_config(self._repo_config)
+        try:
+            pr = repo.get_pull(pr_number)
+        except Exception as e:
+            logger.warning("GetPullRequestDetailsTool: could not fetch PR #%s: %s", pr_number, e)
+            return f"Error fetching PR #{pr_number}: {e}"
+        mergeable = _refresh_mergeable(repo, pr_number)
+        files_list = list(pr.get_files())
+        files_summary = "\n".join(f"- {f.filename}" for f in files_list[:50])
+        if len(files_list) > 50:
+            files_summary += f"\n... and {len(files_list) - 50} more"
+        issue_num = _extract_closes_issue(pr.body or "")
+        issue_context = ""
+        if issue_num:
+            try:
+                issue = repo.get_issue(issue_num)
+                issue_context = f"\nLinked issue #{issue_num}: {issue.title or ''}\n{issue.body[:500] if issue.body else ''}..."
+            except Exception:
+                issue_context = f"\nLinked issue #{issue_num} (could not fetch body)"
+        linked = f"Linked issue: #{issue_num}{issue_context}" if issue_num else "Linked issue: (none)"
+        return (
+            f"PR #{pr_number}: {pr.title}\n"
+            f"Body: {pr.body or '(empty)'}\n"
+            f"Head: {pr.head.ref} -> Base: {pr.base.ref}\n"
+            f"Mergeable: {mergeable}\n"
+            f"Files changed:\n{files_summary}\n"
+            f"{linked}"
+        )
 
 
 class ReviewPullRequestInput(BaseModel):

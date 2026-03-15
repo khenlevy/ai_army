@@ -8,6 +8,7 @@ import logging
 
 from ai_army.config import get_github_repos
 from ai_army.crews.dev_crew import DevCrew
+from ai_army.crews.merge_crew import MergeCrew
 from ai_army.crews.product_crew import ProductCrew
 from ai_army.crews.team_lead_crew import TeamLeadCrew
 from ai_army.dev_context import build_workspace_context, list_in_progress_branch_infos
@@ -23,7 +24,7 @@ from ai_army.tools.github_helpers import (
     get_repo_from_config,
     list_issues_for_dev,
 )
-from ai_army.workspace_manager import cleanup_workspace, force_push_branch, prepare_workspace, workspace_lock
+from ai_army.workspace_manager import cleanup_workspace, fetch_origin, force_push_branch, prepare_workspace, workspace_lock
 
 logger = logging.getLogger(__name__)
 
@@ -346,6 +347,66 @@ def run_conflict_check_job() -> None:
         logger.info("Conflict check: skipping because shared clone is busy: %s", exc)
 
     _log_next_run("conflict_check")
+
+
+def run_merge_crew_job() -> None:
+    """Merge agent: merge mergeable PRs and resolve conflicts on conflicted PRs."""
+    repos = get_github_repos()
+    if not repos:
+        logger.warning("No GitHub repos configured, skipping merge crew")
+        return
+    repo_config = repos[0]
+    if not _repo_ready(
+        repo_config,
+        require_code_ops=True,
+        require_pr_ops=True,
+        require_review_ops=True,
+    ):
+        _log_next_run("merge_crew")
+        return
+
+    clone_path = ensure_repo_cloned(repo_config)
+    if not clone_path:
+        logger.warning("Merge crew: repo clone unavailable")
+        _log_next_run("merge_crew")
+        return
+
+    repo = get_repo_from_config(repo_config)
+    open_prs = list(repo.get_pulls(state="open")[:1])
+    if not open_prs:
+        logger.info("Merge crew: no open PRs, skipping")
+        _log_next_run("merge_crew")
+        return
+
+    def _run() -> None:
+        try:
+            with workspace_lock(clone_path):
+                prepare_workspace(clone_path)
+                fetch_origin(clone_path)
+                store = get_context_store()
+                store.load()
+                crew_context = store.get_summary(exclude="merge")
+                logger.info("Merge crew: context from previous crews (%d chars)", len(crew_context))
+                logger.info("Merge crew starting")
+                result = MergeCrew.kickoff(
+                    repo_config=repo_config,
+                    clone_path=clone_path,
+                    crew_context=crew_context,
+                )
+                store.add("merge", str(result))
+                logger.info("Merge crew done successfully")
+        except TimeoutError as exc:
+            logger.info("Merge crew: skipping because shared clone is busy: %s", exc)
+        except Exception as e:
+            logger.exception("Merge crew failed: %s", e)
+        finally:
+            try:
+                cleanup_workspace(clone_path)
+            except Exception as cleanup_exc:
+                logger.warning("Merge crew cleanup failed: %s", cleanup_exc)
+        _log_next_run("merge_crew")
+
+    run_if_tokens_available(_run)
 
 
 # QA Crew disabled - automation infra to be added later

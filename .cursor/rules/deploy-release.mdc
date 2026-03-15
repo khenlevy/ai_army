@@ -1,0 +1,31 @@
+---
+description: Deploy/release workflow to production droplet
+alwaysApply: true
+---
+
+# Deploy / Release to Production
+
+## Terminology
+
+- **"deploy"** and **"release"** both mean: run the full release pipeline to the production droplet (build, upload, start container).
+- Use `scripts/release.py` for the release. Use `--no-bump` only when retrying after a build/upload failure.
+
+## Post-Deploy Verification
+
+After each deployment finishes successfully:
+
+1. **SSH into the droplet** (e.g. `ssh ai-army-droplet`).
+2. **Check for errors**:
+   - `sudo docker ps` – confirm the `ai-army` container is running
+   - `sudo docker logs ai-army --tail 80` – scan for ERROR, WARNING, traceback, or failed startup
+   - If the scheduler runs: look for RAG refresh, agent window, or job failures in the logs
+3. **Report** any concerning log lines or startup issues to the user.
+
+## Error Remediation Loop
+
+If errors are found in production logs:
+
+1. **Investigate**: Research the error in the project and related code. Trace the failure to its root cause (config, code path, dependency, or environment).
+2. **Fix**: Apply the fix in code or config, commit, and release again.
+3. **Verify**: Run post-deploy verification (SSH, logs) as above.
+4. **Iterate**: Repeat until production logs show no errors. Do not stop until the deployment is clean.

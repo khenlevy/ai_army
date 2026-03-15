@@ -17,6 +17,7 @@ from ai_army.config import get_github_repos
 from ai_army.config.settings import settings
 from ai_army.scheduler.jobs import (
     run_conflict_check_job,
+    run_merge_crew_job,
     run_rag_refresh_job,
     run_dev_crew_job,
     run_product_crew_job,
@@ -81,6 +82,7 @@ def create_scheduler() -> BackgroundScheduler:
     backend_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 30)
     fullstack_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 40)
     conflict_check_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 45)
+    merge_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 50)
 
     refresh_hour_offset, _ = _hour_minute_slot(0)
     product_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes)
@@ -89,6 +91,7 @@ def create_scheduler() -> BackgroundScheduler:
     backend_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 30)
     fullstack_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 40)
     conflict_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 45)
+    merge_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 50)
 
     scheduler.add_job(
         run_rag_refresh_job,
@@ -142,6 +145,13 @@ def create_scheduler() -> BackgroundScheduler:
         hour=_refresh_hour_expr(conflict_hour_offset),
         id="conflict_check",
     )
+    scheduler.add_job(
+        run_merge_crew_job,
+        trigger="cron",
+        minute=str(merge_minute),
+        hour=_refresh_hour_expr(merge_hour_offset),
+        id="merge_crew",
+    )
     # QA disabled - automation infra to be added later
     # Startup window: refresh first, then open agent jobs with the same offsets.
     now = datetime.now(timezone.utc)
@@ -187,6 +197,12 @@ def create_scheduler() -> BackgroundScheduler:
         run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes + 45),
         id="conflict_check_startup",
     )
+    scheduler.add_job(
+        run_merge_crew_job,
+        trigger="date",
+        run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes + 50),
+        id="merge_crew_startup",
+    )
     set_scheduler(scheduler)
     return scheduler
 
@@ -200,7 +216,7 @@ def start_scheduler() -> BackgroundScheduler:
     scheduler.start()
     logger.info(
         "Scheduler running. Pipeline: RAG refresh(:%02d) → Product(:%02d) → Team Lead(:%02d) → "
-        "Dev frontend(:%02d) backend(:%02d) fullstack(:%02d) → Conflict check(:%02d). QA disabled.",
+        "Dev frontend(:%02d) backend(:%02d) fullstack(:%02d) → Conflict check(:%02d) → Merge agent(:%02d). QA disabled.",
         _minute_slot(0),
         _minute_slot(settings.rag_agent_window_delay_minutes),
         _minute_slot(settings.rag_agent_window_delay_minutes + 10),
@@ -208,5 +224,6 @@ def start_scheduler() -> BackgroundScheduler:
         _minute_slot(settings.rag_agent_window_delay_minutes + 30),
         _minute_slot(settings.rag_agent_window_delay_minutes + 40),
         _minute_slot(settings.rag_agent_window_delay_minutes + 45),
+        _minute_slot(settings.rag_agent_window_delay_minutes + 50),
     )
     return scheduler
