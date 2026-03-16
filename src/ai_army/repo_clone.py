@@ -45,15 +45,55 @@ def ensure_repo_cloned(repo_config: GitHubRepoConfig | None = None) -> Path | No
 
     if (clone_path / ".git").exists():
         logger.info("Repo already cloned at %s, pulling latest", clone_path)
+        # Use fetch + reset instead of "git pull --rebase" to avoid
+        # "Cannot rebase onto multiple branches" when clone is in ambiguous state
+        # (e.g. left on feature branch, detached HEAD, or concurrent fetch).
         r = subprocess.run(
-            ["git", "pull", "--rebase"],
+            ["git", "rebase", "--abort"],
+            cwd=clone_path,
+            capture_output=True,
+            timeout=30,
+        )
+        # Ignore abort result; only matters if we were mid-rebase
+        r = subprocess.run(
+            ["git", "fetch", "origin"],
             cwd=clone_path,
             capture_output=True,
             text=True,
             timeout=60,
         )
         if r.returncode != 0:
-            logger.warning("git pull failed in %s: %s", clone_path, r.stderr)
+            logger.warning("git fetch failed in %s: %s", clone_path, r.stderr)
+            return clone_path
+        # Reset to origin's default branch (main or master)
+        default_ref = "origin/main"
+        ref_check = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "origin/HEAD"],
+            cwd=clone_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if ref_check.returncode == 0 and ref_check.stdout.strip():
+            default_ref = ref_check.stdout.strip()
+        branch_name = default_ref.replace("origin/", "")
+        r = subprocess.run(
+            ["git", "checkout", "-B", branch_name, default_ref],
+            cwd=clone_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if r.returncode != 0 and default_ref != "origin/main":
+            r = subprocess.run(
+                ["git", "checkout", "-B", "main", "origin/main"],
+                cwd=clone_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        if r.returncode != 0:
+            logger.warning("git checkout/reset failed in %s: %s", clone_path, r.stderr)
         else:
             logger.info("ensure_repo_cloned: pulled latest at %s", clone_path)
         return clone_path

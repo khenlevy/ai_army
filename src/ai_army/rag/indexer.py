@@ -11,6 +11,10 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 
 from ai_army.config.settings import settings
+
+COMPACTION_ERROR_HINT = (
+    " Set RAG_USE_GREP_FALLBACK=1 in .env.production to skip ChromaDB and use grep-based search."
+)
 from ai_army.rag.chunker import chunk_file, should_index_path
 from ai_army.rag.runtime_state import (
     RAG_LOG,
@@ -74,8 +78,13 @@ def _flush_batch(
     return size
 
 
-def build_index(repo_path: Path) -> Path:
-    """Build and publish a versioned ChromaDB snapshot for the repo."""
+def _is_chromadb_compaction_error(exc: BaseException) -> bool:
+    """Check if the error is ChromaDB's known compaction bug (large datasets)."""
+    return isinstance(exc, chromadb.errors.InternalError) and "compaction" in str(exc).lower()
+
+
+def _build_index_inner(repo_path: Path, batch_size: int) -> Path:
+    """Build and publish a versioned ChromaDB snapshot. Used by build_index with retry."""
     t0 = time.monotonic()
     repo_path = Path(repo_path).resolve()
     if not (repo_path / ".git").exists():
@@ -137,7 +146,7 @@ def build_index(repo_path: Path) -> Path:
                         }
                     )
                     ids.append(chunk_id)
-                    if len(texts) >= BATCH_SIZE:
+                    if len(texts) >= batch_size:
                         chunks_indexed += _flush_batch(collection, model, texts, metadatas, ids)
 
             chunks_indexed += _flush_batch(collection, model, texts, metadatas, ids)
@@ -187,4 +196,22 @@ def build_index(repo_path: Path) -> Path:
         mark_build_failed(repo_key, str(exc))
         validate_runtime_state(repo_path)
         logger.exception("%s snapshot build failed for %s: %s", RAG_LOG, repo_path.name, exc)
+        raise
+
+
+def build_index(repo_path: Path) -> Path:
+    """Build and publish a versioned ChromaDB snapshot. Retries with smaller batch on compaction error."""
+    try:
+        return _build_index_inner(repo_path, batch_size=BATCH_SIZE)
+    except Exception as exc:
+        if _is_chromadb_compaction_error(exc):
+            logger.warning(
+                "%s ChromaDB compaction error (known bug with large datasets). Retrying with smaller batch.",
+                RAG_LOG,
+            )
+            try:
+                return _build_index_inner(repo_path, batch_size=64)
+            except Exception as retry_exc:
+                hint = COMPACTION_ERROR_HINT if _is_chromadb_compaction_error(retry_exc) else ""
+                raise type(retry_exc)(str(retry_exc) + hint) from retry_exc
         raise
