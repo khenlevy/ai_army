@@ -1,0 +1,36 @@
+---
+description: Unit tests must pass before commit
+alwaysApply: true
+---
+
+# Pre-Commit: Unit Tests Required
+
+## Rule
+
+**All unit tests must pass before any commit.** This is enforced by pre-commit and by this rule.
+
+## Before Commit
+
+1. **Run tests**: `poetry run pytest tests/ -v -x`
+2. **If any test fails**: Fix the failure before committing. Do not commit with failing tests.
+3. **Pre-commit hook**: After `pre-commit install`, the hook runs automatically on `git commit`. If tests fail, the commit is aborted.
+
+## Setup (one-time)
+
+```bash
+poetry install
+poetry run pip install pre-commit   # if not in lock file
+poetry run pre-commit install
+```
+
+## When Tests Fail
+
+1. **Investigate**: Read the failure output. Identify the failing test and root cause.
+2. **Fix**: Update code or tests to resolve the failure.
+3. **Verify**: Run `poetry run pytest tests/ -v` again until all tests pass.
+4. **Commit**: Only then proceed with `git commit`.
+
+## Never
+
+- Commit with `--no-verify` to skip the pre-commit hook (unless explicitly requested for emergency hotfix).
+- Leave failing tests unfixed in the working tree.

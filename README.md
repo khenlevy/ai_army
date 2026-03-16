@@ -44,6 +44,8 @@ cp .env.example .env
 
 Set `ANTHROPIC_API_KEY`, `GITHUB_TARGET_TOKEN`, `GITHUB_TARGET_REPO` (or `GITHUB_REPO_1`/`GITHUB_TOKEN_1` for multi-repo). Optional: `product_context.yaml` (Product Crew); `LANGCHAIN_TRACING_V2` + `LANGCHAIN_API_KEY` (LangSmith); `REPO_WORKSPACE` (dev clone path). Product Crew caps at 8 open issues.
 
+**Pre-commit (unit tests):** Run `poetry run pip install pre-commit && poetry run pre-commit install` to run tests before each commit. See `.cursor/rules/pre-commit-tests.mdc`.
+
 ## Run
 
 ```bash
