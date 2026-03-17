@@ -261,6 +261,26 @@ def main() -> int:
     if rc != 0:
         return rc
 
+    # 6b. Pre-deploy cleanup on droplet (run BEFORE SCP so space is freed before upload)
+    log("Step 6b/9: Pre-deploy cleanup on droplet", "6b", elapsed())
+    if args.dry_run:
+        print(f"  [dry-run] ssh {SSH_HOST} run pre-deploy-cleanup.sh", flush=True)
+    else:
+        cleanup_script = (SCRIPT_DIR / "pre-deploy-cleanup.sh").read_text()
+        proc = subprocess.Popen(
+            ["ssh", SSH_HOST, f"RELEASE_APP_PATH={app_path} bash -s"],
+            stdin=subprocess.PIPE,
+            text=True,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )
+        proc.stdin.write(cleanup_script)
+        proc.stdin.close()
+        if proc.wait() != 0:
+            log("Pre-deploy cleanup failed")
+            return 1
+        log("Pre-deploy cleanup done", elapsed_sec=elapsed())
+
     # 7. Copy tar to production
     log("Step 7/9: Copying tar to production", "7", elapsed())
     remote_tar = f"{SSH_HOST}:{app_path}/{tar_name}"
