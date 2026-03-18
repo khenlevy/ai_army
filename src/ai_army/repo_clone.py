@@ -2,12 +2,16 @@
 
 import logging
 import subprocess
+import time
 from pathlib import Path
 
 from ai_army.config.settings import get_github_repos, settings
 from ai_army.config.settings import GitHubRepoConfig
 
 logger = logging.getLogger(__name__)
+
+# If index.lock is older than this (seconds), treat as stale from crashed process
+GIT_INDEX_LOCK_STALE_SECONDS = 120
 
 
 def _workspace_root() -> Path:
@@ -45,6 +49,16 @@ def ensure_repo_cloned(repo_config: GitHubRepoConfig | None = None) -> Path | No
 
     if (clone_path / ".git").exists():
         logger.info("Repo already cloned at %s, pulling latest", clone_path)
+        # Remove stale index.lock from crashed/interrupted git (e.g. container restart)
+        index_lock = clone_path / ".git" / "index.lock"
+        if index_lock.exists():
+            age = time.time() - index_lock.stat().st_mtime
+            if age > GIT_INDEX_LOCK_STALE_SECONDS:
+                try:
+                    index_lock.unlink()
+                    logger.info("Removed stale .git/index.lock (age %.0fs)", age)
+                except OSError as e:
+                    logger.warning("Could not remove stale index.lock: %s", e)
         # Use fetch + reset instead of "git pull --rebase" to avoid
         # "Cannot rebase onto multiple branches" when clone is in ambiguous state
         # (e.g. left on feature branch, detached HEAD, or concurrent fetch).

@@ -255,14 +255,38 @@ def staging_snapshot_dir(repo: str | Path, version: str) -> Path:
     return snapshots_root(repo) / f".staging-{version}"
 
 
+def _is_stale_build_lock(lock_path: Path) -> bool:
+    """Return True if the lock file exists but the holding process is dead (stale)."""
+    if not lock_path.exists():
+        return False
+    try:
+        pid_str = lock_path.read_text().strip()
+        pid = int(pid_str)
+        os.kill(pid, 0)  # Signal 0: check if process exists
+        return False  # Process is alive, lock is valid
+    except (ValueError, ProcessLookupError, PermissionError):
+        return True  # Stale: bad PID, process dead, or no permission to signal
+    except Exception:
+        return False
+
+
 @contextmanager
 def build_lock(repo: str | Path, timeout_seconds: int = 30) -> Iterator[None]:
-    """Simple file lock for single-host build/publish operations."""
+    """Simple file lock for single-host build/publish operations.
+
+    Removes stale locks (from crashed/killed processes) before acquiring.
+    """
     lock_path = build_lock_path(repo)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
     fd: int | None = None
     while fd is None:
+        if _is_stale_build_lock(lock_path):
+            try:
+                lock_path.unlink()
+                logger.info("%s removed stale build lock (holder process dead)", RAG_LOG)
+            except OSError as e:
+                logger.warning("%s could not remove stale lock %s: %s", RAG_LOG, lock_path, e)
         try:
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.write(fd, str(os.getpid()).encode("utf-8"))
