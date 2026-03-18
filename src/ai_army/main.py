@@ -143,6 +143,50 @@ def run_qa_crew():
     return result
 
 
+def run_check():
+    """Print pipeline state: issue counts, labels, why crews skip."""
+    from ai_army.config import get_github_repos
+    from ai_army.tools.github_helpers import (
+        count_backlog_promotable,
+        count_issues_for_dev,
+        count_issues_ready_for_breakdown,
+        count_prioritized_needing_enrichment,
+        get_open_issue_count,
+        get_repo_from_config,
+    )
+
+    configure_logging()
+    repos = get_github_repos()
+    if not repos:
+        print("No GitHub repos configured")
+        return
+    repo_config = repos[0]
+    repo = get_repo_from_config(repo_config)
+    open_count = get_open_issue_count(repo)
+    prioritized_needing = count_prioritized_needing_enrichment(repo_config)
+    backlog_promotable = count_backlog_promotable(repo_config)
+    ready_for_breakdown = count_issues_ready_for_breakdown(repo_config)
+    dev_frontend = count_issues_for_dev(repo_config, "frontend")
+    dev_backend = count_issues_for_dev(repo_config, "backend")
+    dev_fullstack = count_issues_for_dev(repo_config, "fullstack")
+    open_prs = len(list(repo.get_pulls(state="open")))
+
+    print(f"Repo: {repo_config.repo}")
+    print(f"Open issues (excl PRs): {open_count}")
+    print(f"Open PRs: {open_prs}")
+    print()
+    print("Pipeline:")
+    print(f"  Product: prioritized needing enrichment = {prioritized_needing}")
+    print(f"  Product: backlog/feature promotable to prioritized = {backlog_promotable}")
+    print(f"  Team Lead: ready-for-breakdown (no broken-down) = {ready_for_breakdown}")
+    print(f"  Dev frontend: {dev_frontend} | backend: {dev_backend} | fullstack: {dev_fullstack}")
+    print()
+    print("Labels required:")
+    print("  Product: issues with 'prioritized' but not 'ready-for-breakdown'")
+    print("  Team Lead: issues with 'ready-for-breakdown' but not 'broken-down'")
+    print("  Dev: sub-issues with 'frontend'|'backend'|'fullstack' (created by Team Lead)")
+
+
 def run_scheduler():
     """Run the scheduler: Product → Team Lead → Dev (frontend/backend/fullstack) → QA, hourly pipeline."""
     configure_logging()
@@ -189,6 +233,9 @@ def main():
     # qa - run QA Crew once
     subparsers.add_parser("qa", help="Run QA Crew once")
 
+    # check - print pipeline state (issue counts, why crews skip)
+    subparsers.add_parser("check", help="Print pipeline state: issue counts, labels")
+
     args = parser.parse_args()
 
     configure_logging()
@@ -213,6 +260,8 @@ def main():
     elif args.command == "qa":
         result = run_qa_crew()
         print(result)
+    elif args.command == "check":
+        run_check()
     else:
         logger.debug("No command specified, showing help")
         parser.print_help()

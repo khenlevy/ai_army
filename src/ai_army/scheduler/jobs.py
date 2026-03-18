@@ -19,6 +19,7 @@ from ai_army.rag.runtime_state import agent_window_open, load_runtime_state, rep
 from ai_army.repo_clone import ensure_repo_cloned
 from ai_army.scheduler.token_check import invalidate_token_cache, run_if_tokens_available
 from ai_army.tools.github_helpers import (
+    count_backlog_promotable,
     count_issues_for_dev,
     count_issues_ready_for_breakdown,
     count_prioritized_needing_enrichment,
@@ -123,9 +124,10 @@ def run_product_crew_job() -> None:
     repo = get_repo_from_config(repo_config)
     open_count = get_open_issue_count(repo)
     prioritized_needing = count_prioritized_needing_enrichment(repo_config)
-    if open_count >= OPEN_ISSUE_CAP and prioritized_needing == 0:
+    backlog_promotable = count_backlog_promotable(repo_config)
+    if open_count >= OPEN_ISSUE_CAP and prioritized_needing == 0 and backlog_promotable == 0:
         logger.info(
-            "[%s] Skipping - backlog full (%d issues) and no prioritized issues needing enrichment",
+            "[%s] Skipping - backlog full (%d issues), nothing to enrich, no backlog to promote",
             TAG,
             open_count,
         )

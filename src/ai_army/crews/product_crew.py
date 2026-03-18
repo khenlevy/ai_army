@@ -147,11 +147,13 @@ def create_product_crew(
             + overview_block
             + goal_block
             + cap_rule
-            + "\n\nList open issues using List Open GitHub Issues. Create new GitHub issues only when under "
-            "the open-issue cap using Create Structured GitHub Issue (provide a free-form description). "
-            "New issues get 'backlog' and 'prioritized' at creation—do not re-prioritize existing issues."
+            + "\n\nList open issues using List Open GitHub Issues. "
+            "When under the open-issue cap: create new issues using Create Structured GitHub Issue (new issues get 'backlog' and 'prioritized'). "
+            "When AT OR OVER the cap: you cannot create new issues. Instead, promote backlog issues to prioritized: "
+            "use List Open GitHub Issues filtered by 'backlog', pick 1–2 issues that align with product goals, "
+            "and use Update GitHub Issue to add the 'prioritized' label. This feeds the pipeline so the Product Agent can enrich them."
         ),
-        expected_output="Summary of new issues created (with backlog, prioritized).",
+        expected_output="Summary of new issues created, or backlog issues promoted to prioritized.",
         agent=product_manager,
     )
 

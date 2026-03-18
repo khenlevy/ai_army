@@ -161,6 +161,34 @@ def count_prioritized_needing_enrichment(repo_config: GitHubRepoConfig | None = 
         return 0
 
 
+def count_backlog_promotable(repo_config: GitHubRepoConfig | None = None) -> int:
+    """Count open issues that can be promoted to prioritized to feed the pipeline.
+
+    Includes issues with 'backlog' or 'feature' that lack 'prioritized' and 'ready-for-breakdown'.
+    Excludes parent issues already broken-down (they have sub-issues).
+    """
+    try:
+        repo = _get_repo_from_config(repo_config)
+        # Fetch backlog and feature issues; union via iteration
+        seen = set()
+        count = 0
+        for label in ("backlog", "feature"):
+            for i in repo.get_issues(state="open", labels=[label]):
+                if i.pull_request or i.number in seen:
+                    continue
+                seen.add(i.number)
+                label_names = {l.name for l in (i.labels or [])}
+                if "prioritized" in label_names or "ready-for-breakdown" in label_names:
+                    continue
+                if "broken-down" in label_names:
+                    continue  # Parent already processed
+                count += 1
+        return count
+    except Exception as e:
+        logger.warning("count_backlog_promotable failed: %s", e)
+        return 0
+
+
 def _issue_linked_in_pr_body(pr_body: str | None, issue_number: int) -> bool:
     """Check if PR body contains a GitHub-closing reference for the given issue."""
     if not pr_body:
