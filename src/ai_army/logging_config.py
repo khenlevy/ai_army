@@ -7,7 +7,7 @@ import sys
 def configure_logging(level: int = logging.INFO) -> None:
     """Configure app-wide logging. Call once at startup."""
     format_str = "%(asctime)s | %(levelname)-7s | %(message)s"
-    date_format = "%H:%M:%S"
+    date_format = "%Y-%m-%d %H:%M:%S"
 
     logging.basicConfig(
         level=level,

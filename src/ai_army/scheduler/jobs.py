@@ -5,6 +5,7 @@ QA is disabled (automation infra to be added later).
 """
 
 import logging
+import time
 
 from ai_army.config import get_github_repos
 from ai_army.crews.dev_crew import DevCrew
@@ -43,12 +44,13 @@ def _log_next_run(job_id: str) -> None:
     if _scheduler:
         job = _scheduler.get_job(job_id)
         if job and job.next_run_time:
-            logger.info("Next %s: %s", job_id, job.next_run_time.strftime("%Y-%m-%d %H:%M"))
+            logger.info("[%s] Next run: %s", job_id, job.next_run_time.strftime("%Y-%m-%d %H:%M"))
 
 
 def _repo_ready(
     repo_config,
     *,
+    job_tag: str = "",
     require_search: bool = False,
     require_issue_ops: bool = False,
     require_code_ops: bool = False,
@@ -57,14 +59,15 @@ def _repo_ready(
 ) -> bool:
     """Gate agent jobs on synchronized RAG/runtime readiness."""
     state = load_runtime_state(repo_key_for_config(repo_config))
+    tag = f"[{job_tag}] " if job_tag else ""
     missing: list[str] = []
     if not state.repo_path:
-        logger.info("Skipping job for %s - runtime state missing (refresh has not completed)", repo_config.repo)
+        logger.info("%sSkipping - runtime state missing (refresh has not completed)", tag)
         return False
     if not agent_window_open(state):
         logger.info(
-            "Skipping job for %s - agent window not open yet (opens at %s)",
-            repo_config.repo,
+            "%sSkipping - agent window not open yet (opens at %s)",
+            tag,
             state.next_agent_window_at or "unknown",
         )
         return False
@@ -80,8 +83,8 @@ def _repo_ready(
         missing.append("review_ops_ready")
     if missing:
         logger.info(
-            "Skipping job for %s - missing capabilities: %s | mode=%s state=%s",
-            repo_config.repo,
+            "%sSkipping - missing capabilities: %s | mode=%s state=%s",
+            tag,
             ", ".join(missing),
             state.retrieval_mode,
             state.agent_state,
@@ -92,10 +95,12 @@ def _repo_ready(
 
 def run_rag_refresh_job() -> None:
     """Refresh published RAG snapshots and validate readiness before agent windows."""
-    logger.info("RAG refresh starting")
+    t0 = time.monotonic()
+    logger.info("[rag_refresh] starting")
     invalidate_token_cache()
     refresh_indexes()
-    logger.info("RAG refresh completed")
+    elapsed = time.monotonic() - t0
+    logger.info("[rag_refresh] done | elapsed: %.1fs", elapsed)
     _log_next_run("rag_refresh")
 
 
@@ -104,14 +109,15 @@ OPEN_ISSUE_CAP = 8
 
 def run_product_crew_job() -> None:
     """Run Product Crew for each configured repo. Skips when API limit reached or idle (backlog full, nothing to enrich)."""
+    TAG = "product_crew"
     repos = get_github_repos()
     if not repos:
-        logger.warning("No GitHub repos configured, skipping job")
+        logger.warning("[%s] No GitHub repos configured, skipping", TAG)
         return
 
     repo_config = repos[0]
-    if not _repo_ready(repo_config, require_search=True, require_issue_ops=True):
-        _log_next_run("product_crew")
+    if not _repo_ready(repo_config, job_tag=TAG, require_search=True, require_issue_ops=True):
+        _log_next_run(TAG)
         return
 
     repo = get_repo_from_config(repo_config)
@@ -119,91 +125,98 @@ def run_product_crew_job() -> None:
     prioritized_needing = count_prioritized_needing_enrichment(repo_config)
     if open_count >= OPEN_ISSUE_CAP and prioritized_needing == 0:
         logger.info(
-            "Product Crew: cost-reduction skip - backlog full (%d issues) and no prioritized issues needing enrichment",
+            "[%s] Skipping - backlog full (%d issues) and no prioritized issues needing enrichment",
+            TAG,
             open_count,
         )
-        _log_next_run("product_crew")
+        _log_next_run(TAG)
         return
 
     def _run() -> None:
+        t0 = time.monotonic()
         store = get_context_store()
         store.load()
         crew_context = store.get_summary(exclude="product")
-        logger.info("Product Crew: context from previous crews (%d chars)", len(crew_context))
-        logger.info("GitHub repos for this run: %s", ", ".join(r.repo for r in repos))
+        logger.info("[%s] context from previous crews (%d chars)", TAG, len(crew_context))
         for cfg in repos:
-            if not _repo_ready(cfg, require_search=True, require_issue_ops=True):
+            if not _repo_ready(cfg, job_tag=TAG, require_search=True, require_issue_ops=True):
                 continue
             try:
-                logger.info("Product Crew starting | repo: %s", cfg.repo)
+                logger.info("[%s] starting | repo: %s", TAG, cfg.repo)
                 result = ProductCrew.kickoff(repo_config=cfg, crew_context=crew_context)
                 store.add("product", str(result))
-                logger.info("Product Crew done successfully | repo: %s", cfg.repo)
+                elapsed = time.monotonic() - t0
+                logger.info("[%s] done | repo: %s | elapsed: %.1fs", TAG, cfg.repo, elapsed)
             except Exception as e:
-                logger.exception("Product Crew failed | repo: %s | %s", cfg.repo, e)
-        _log_next_run("product_crew")
+                logger.exception("[%s] failed | repo: %s | %s", TAG, cfg.repo, e)
+        _log_next_run(TAG)
 
     run_if_tokens_available(_run)
 
 
 def run_team_lead_crew_job() -> None:
     """Run Team Lead Crew: break down ready-for-breakdown issues into sub-issues (frontend/backend/fullstack)."""
+    TAG = "team_lead_crew"
     repos = get_github_repos()
     if not repos:
-        logger.warning("No GitHub repos configured, skipping job")
+        logger.warning("[%s] No GitHub repos configured, skipping", TAG)
         return
-    if not _repo_ready(repos[0], require_search=True, require_issue_ops=True):
-        _log_next_run("team_lead_crew")
+    if not _repo_ready(repos[0], job_tag=TAG, require_search=True, require_issue_ops=True):
+        _log_next_run(TAG)
         return
 
     count = count_issues_ready_for_breakdown(repos[0])
     if count == 0:
-        logger.info("Team Lead Crew: no issues ready-for-breakdown (without broken-down), skipping")
-        _log_next_run("team_lead_crew")
+        logger.info("[%s] Skipping - no issues ready-for-breakdown (without broken-down)", TAG)
+        _log_next_run(TAG)
         return
 
     def _run() -> None:
+        t0 = time.monotonic()
         store = get_context_store()
         store.load()
         crew_context = store.get_summary(exclude="team_lead")
-        logger.info("Team Lead Crew: context from previous crews (%d chars)", len(crew_context))
+        logger.info("[%s] context from previous crews (%d chars)", TAG, len(crew_context))
         try:
-            logger.info("Team Lead Crew starting (%d issues to break down)", count)
+            logger.info("[%s] starting | %d issues to break down", TAG, count)
             result = TeamLeadCrew.kickoff(crew_context=crew_context)
             store.add("team_lead", str(result))
-            logger.info("Team Lead Crew done successfully")
+            elapsed = time.monotonic() - t0
+            logger.info("[%s] done | repo: %s | elapsed: %.1fs", TAG, repos[0].repo, elapsed)
         except Exception as e:
-            logger.exception("Team Lead Crew failed: %s", e)
-        _log_next_run("team_lead_crew")
+            logger.exception("[%s] failed: %s", TAG, e)
+        _log_next_run(TAG)
 
     run_if_tokens_available(_run)
 
 
 def run_dev_crew_job(agent_type: str) -> None:
     """Run Dev Crew for one agent type (frontend, backend, fullstack)."""
+    TAG = f"dev_crew_{agent_type}"
     repos = get_github_repos()
     if not repos:
-        logger.warning("No GitHub repos configured, skipping job")
+        logger.warning("[%s] No GitHub repos configured, skipping", TAG)
         return
     repo_config = repos[0]
-    if not _repo_ready(repo_config, require_search=True, require_code_ops=True, require_pr_ops=True):
-        _log_next_run(f"dev_crew_{agent_type}")
+    if not _repo_ready(repo_config, job_tag=TAG, require_search=True, require_code_ops=True, require_pr_ops=True):
+        _log_next_run(TAG)
         return
 
     conflict_prs = find_conflicting_agent_prs(repo_config, agent_type)
     count = count_issues_for_dev(repo_config, agent_type)
     if count == 0 and not conflict_prs:
-        logger.info("Dev Crew (%s): no available issues and no conflicted PRs, skipping", agent_type)
-        _log_next_run(f"dev_crew_{agent_type}")
+        logger.info("[%s] Skipping - no available issues and no conflicted PRs", TAG)
+        _log_next_run(TAG)
         return
 
     clone_path = ensure_repo_cloned(repo_config)
     if not clone_path:
-        logger.warning("Dev Crew (%s): repo clone unavailable, skipping", agent_type)
-        _log_next_run(f"dev_crew_{agent_type}")
+        logger.warning("[%s] Repo clone unavailable, skipping", TAG)
+        _log_next_run(TAG)
         return
 
     def _run() -> None:
+        t0 = time.monotonic()
         try:
             with workspace_lock(clone_path):
                 store = get_context_store()
@@ -217,10 +230,10 @@ def run_dev_crew_job(agent_type: str) -> None:
                     if in_progress_count > 0 or conflict_prs
                     else store.get_summary(exclude="dev")
                 )
-                logger.info("Dev Crew (%s): context from previous crews (%d chars)", agent_type, len(crew_context))
+                logger.info("[%s] context from previous crews (%d chars)", TAG, len(crew_context))
 
                 if conflict_prs:
-                    logger.info("Dev Crew (%s) resolving %d conflicted PR(s)", agent_type, len(conflict_prs))
+                    logger.info("[%s] resolving %d conflicted PR(s)", TAG, len(conflict_prs))
                     results: list[str] = []
                     for conflict_pr in conflict_prs:
                         prepare_result = prepare_workspace(
@@ -249,7 +262,8 @@ def run_dev_crew_job(agent_type: str) -> None:
                         finally:
                             cleanup_workspace(clone_path)
                     store.add("dev", "\n\n".join(results))
-                    logger.info("Dev Crew (%s) finished conflict resolution cycle", agent_type)
+                    elapsed = time.monotonic() - t0
+                    logger.info("[%s] done (conflict resolution) | repo: %s | elapsed: %.1fs", TAG, repo_config.repo, elapsed)
                     return
 
                 branch_infos = list_in_progress_branch_infos(repo_config, clone_path, agent_type)
@@ -261,7 +275,7 @@ def run_dev_crew_job(agent_type: str) -> None:
                 workspace_context = build_workspace_context(prepare_results)
                 cleanup_workspace(clone_path)
 
-                logger.info("Dev Crew (%s) starting (%d issues available)", agent_type, count)
+                logger.info("[%s] starting | %d issues available", TAG, count)
                 result = DevCrew.kickoff(
                     agent_type=agent_type,
                     crew_context=crew_context,
@@ -270,36 +284,38 @@ def run_dev_crew_job(agent_type: str) -> None:
                     workspace_context=workspace_context,
                 )
                 store.add("dev", str(result))
-                logger.info("Dev Crew (%s) done successfully", agent_type)
+                elapsed = time.monotonic() - t0
+                logger.info("[%s] done | repo: %s | elapsed: %.1fs", TAG, repo_config.repo, elapsed)
         except TimeoutError as exc:
-            logger.info("Dev Crew (%s): skipping because shared clone is busy: %s", agent_type, exc)
+            logger.info("[%s] Skipping - shared clone is busy: %s", TAG, exc)
         except Exception as e:
-            logger.exception("Dev Crew (%s) failed: %s", agent_type, e)
+            logger.exception("[%s] failed: %s", TAG, e)
         finally:
             try:
                 cleanup_workspace(clone_path)
             except Exception as cleanup_exc:
-                logger.warning("Dev Crew (%s) cleanup failed: %s", agent_type, cleanup_exc)
-        _log_next_run(f"dev_crew_{agent_type}")
+                logger.warning("[%s] cleanup failed: %s", TAG, cleanup_exc)
+        _log_next_run(TAG)
 
     run_if_tokens_available(_run)
 
 
 def run_conflict_check_job() -> None:
     """Auto-rebase open conflicted PRs between agent windows."""
+    TAG = "conflict_check"
     repos = get_github_repos()
     if not repos:
-        logger.warning("No GitHub repos configured, skipping conflict check")
+        logger.warning("[%s] No GitHub repos configured, skipping", TAG)
         return
     repo_config = repos[0]
-    if not _repo_ready(repo_config, require_code_ops=True, require_pr_ops=True):
-        _log_next_run("conflict_check")
+    if not _repo_ready(repo_config, job_tag=TAG, require_code_ops=True, require_pr_ops=True):
+        _log_next_run(TAG)
         return
 
     clone_path = ensure_repo_cloned(repo_config)
     if not clone_path:
-        logger.warning("Conflict check: repo clone unavailable")
-        _log_next_run("conflict_check")
+        logger.warning("[%s] Repo clone unavailable, skipping", TAG)
+        _log_next_run(TAG)
         return
 
     repo = get_repo_from_config(repo_config)
@@ -309,10 +325,11 @@ def run_conflict_check_job() -> None:
             conflicts.append((agent_type, conflict))
 
     if not conflicts:
-        logger.info("Conflict check: no conflicted PRs found")
-        _log_next_run("conflict_check")
+        logger.info("[%s] No conflicted PRs found", TAG)
+        _log_next_run(TAG)
         return
 
+    t0 = time.monotonic()
     try:
         with workspace_lock(clone_path):
             for agent_type, conflict in conflicts:
@@ -328,7 +345,8 @@ def run_conflict_check_job() -> None:
                     if result.rebased:
                         force_push_branch(clone_path, branch_name)
                         logger.info(
-                            "Conflict check: rebased and force-pushed PR #%s for %s (%s)",
+                            "[%s] rebased and force-pushed PR #%s for %s (%s)",
+                            TAG,
                             pr_number,
                             agent_type,
                             branch_name,
@@ -346,56 +364,62 @@ def run_conflict_check_job() -> None:
                         if message not in existing_comments:
                             pr.create_issue_comment(message)
                         logger.warning(
-                            "Conflict check: PR #%s still has manual conflicts for %s: %s",
+                            "[%s] PR #%s still has manual conflicts for %s: %s",
+                            TAG,
                             pr_number,
                             branch_name,
                             files,
                         )
                 except Exception as exc:
-                    logger.exception("Conflict check failed for PR #%s (%s): %s", pr_number, branch_name, exc)
+                    logger.exception("[%s] failed for PR #%s (%s): %s", TAG, pr_number, branch_name, exc)
                 finally:
                     try:
                         cleanup_workspace(clone_path)
                     except Exception as cleanup_exc:
-                        logger.warning("Conflict check cleanup failed for %s: %s", branch_name, cleanup_exc)
+                        logger.warning("[%s] cleanup failed for %s: %s", TAG, branch_name, cleanup_exc)
+        elapsed = time.monotonic() - t0
+        logger.info("[%s] done | repo: %s | elapsed: %.1fs", TAG, repo_config.repo, elapsed)
     except TimeoutError as exc:
-        logger.info("Conflict check: skipping because shared clone is busy: %s", exc)
+        logger.info("[%s] Skipping - shared clone is busy: %s", TAG, exc)
 
-    _log_next_run("conflict_check")
+    _log_next_run(TAG)
 
 
 def run_merge_crew_job() -> None:
     """Merge agent: merge mergeable PRs and resolve conflicts on conflicted PRs."""
+    TAG = "merge_crew"
     repos = get_github_repos()
     if not repos:
-        logger.warning("No GitHub repos configured, skipping merge crew")
+        logger.warning("[%s] No GitHub repos configured, skipping", TAG)
         return
     repo_config = repos[0]
     if not _repo_ready(
         repo_config,
+        job_tag=TAG,
         require_code_ops=True,
         require_pr_ops=True,
         require_review_ops=True,
     ):
-        _log_next_run("merge_crew")
+        _log_next_run(TAG)
         return
 
     clone_path = ensure_repo_cloned(repo_config)
     if not clone_path:
-        logger.warning("Merge crew: repo clone unavailable")
-        _log_next_run("merge_crew")
+        logger.warning("[%s] Repo clone unavailable, skipping", TAG)
+        _log_next_run(TAG)
         return
 
     repo = get_repo_from_config(repo_config)
     open_prs = list(repo.get_pulls(state="open"))
     if not open_prs:
-        logger.info("Merge crew: no open PRs, skipping")
-        _log_next_run("merge_crew")
+        logger.info("[%s] No open PRs, skipping", TAG)
+        _log_next_run(TAG)
         return
 
-    logger.info("Merge crew: %d open PR(s) to process", len(open_prs))
+    logger.info("[%s] %d open PR(s) to process", TAG, len(open_prs))
 
     def _run() -> None:
+        t0 = time.monotonic()
         try:
             with workspace_lock(clone_path):
                 prepare_workspace(clone_path)
@@ -403,25 +427,26 @@ def run_merge_crew_job() -> None:
                 store = get_context_store()
                 store.load()
                 crew_context = store.get_summary(exclude="merge")
-                logger.info("Merge crew: context from previous crews (%d chars)", len(crew_context))
-                logger.info("Merge crew starting")
+                logger.info("[%s] context from previous crews (%d chars)", TAG, len(crew_context))
+                logger.info("[%s] starting", TAG)
                 result = MergeCrew.kickoff(
                     repo_config=repo_config,
                     clone_path=clone_path,
                     crew_context=crew_context,
                 )
                 store.add("merge", str(result))
-                logger.info("Merge crew done successfully")
+                elapsed = time.monotonic() - t0
+                logger.info("[%s] done | repo: %s | elapsed: %.1fs", TAG, repo_config.repo, elapsed)
         except TimeoutError as exc:
-            logger.info("Merge crew: skipping because shared clone is busy: %s", exc)
+            logger.info("[%s] Skipping - shared clone is busy: %s", TAG, exc)
         except Exception as e:
-            logger.exception("Merge crew failed: %s", e)
+            logger.exception("[%s] failed: %s", TAG, e)
         finally:
             try:
                 cleanup_workspace(clone_path)
             except Exception as cleanup_exc:
-                logger.warning("Merge crew cleanup failed: %s", cleanup_exc)
-        _log_next_run("merge_crew")
+                logger.warning("[%s] cleanup failed: %s", TAG, cleanup_exc)
+        _log_next_run(TAG)
 
     run_if_tokens_available(_run)
 
