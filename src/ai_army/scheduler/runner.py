@@ -1,9 +1,9 @@
 """Scheduler runner - full pipeline: Product → Team Lead → Dev (frontend/backend/fullstack).
 
-Schedule staggered to avoid blocking:
-- Product (min 0): backlog → prioritized → ready-for-breakdown
-- Team Lead (min 10): ready-for-breakdown → sub-issues with frontend/backend/fullstack (GitHub pre-check)
-- Dev frontend (min 20), backend (min 30), fullstack (min 40): each picks own label (GitHub pre-check)
+Schedule aligned with RAG build time (~96 min). RAG runs at :00; crews run at :50-:59
+after RAG finishes (~:36) and agent window opens (~:46). Big buffers for reliability.
+- Product (:50), Team Lead (:52), Dev frontend (:54) backend (:56) fullstack (:58)
+- Conflict check (:59), Merge agent (:59)
 - QA disabled (automation infra to be added later)
 """
 
@@ -73,25 +73,24 @@ def _check_startup() -> bool:
 
 
 def create_scheduler() -> BackgroundScheduler:
-    """Create and configure the scheduler with staggered pipeline."""
-    scheduler = BackgroundScheduler()
-    refresh_minute = _minute_slot(0)
-    product_minute = _minute_slot(settings.rag_agent_window_delay_minutes)
-    team_lead_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 10)
-    frontend_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 20)
-    backend_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 30)
-    fullstack_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 40)
-    conflict_check_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 45)
-    merge_minute = _minute_slot(settings.rag_agent_window_delay_minutes + 50)
+    """Create and configure the scheduler with staggered pipeline.
 
+    Crews run at :50-:59 to align with RAG finish (~:36) + agent window (~:46).
+    RAG runs every 2h by default for big buffers.
+    """
+    scheduler = BackgroundScheduler()
+    base = settings.rag_crew_base_minute
+    product_minute = base
+    team_lead_minute = base + 2
+    frontend_minute = base + 4
+    backend_minute = base + 6
+    fullstack_minute = base + 8
+    conflict_check_minute = base + 9
+    merge_minute = base + 9
+
+    refresh_minute = _minute_slot(0)
     refresh_hour_offset, _ = _hour_minute_slot(0)
-    product_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes)
-    team_lead_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 10)
-    frontend_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 20)
-    backend_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 30)
-    fullstack_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 40)
-    conflict_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 45)
-    merge_hour_offset, _ = _hour_minute_slot(settings.rag_agent_window_delay_minutes + 50)
+    crew_hour = "*"  # Crews run every hour; _repo_ready skips when window closed
 
     scheduler.add_job(
         run_rag_refresh_job,
@@ -100,61 +99,59 @@ def create_scheduler() -> BackgroundScheduler:
         hour=_refresh_hour_expr(refresh_hour_offset),
         id="rag_refresh",
     )
-    # Product: runs after refresh window opens and can create/enrich issues.
     scheduler.add_job(
         run_product_crew_job,
         trigger="cron",
         minute=str(product_minute),
-        hour=_refresh_hour_expr(product_hour_offset),
+        hour=crew_hour,
         id="product_crew",
     )
-    # Team Lead: breaks down sub-issues after the product window.
     scheduler.add_job(
         run_team_lead_crew_job,
         trigger="cron",
         minute=str(team_lead_minute),
-        hour=_refresh_hour_expr(team_lead_hour_offset),
+        hour=crew_hour,
         id="team_lead_crew",
     )
-    # Dev: runs only after refresh + readiness window.
     scheduler.add_job(
         partial(run_dev_crew_job, "frontend"),
         trigger="cron",
         minute=str(frontend_minute),
-        hour=_refresh_hour_expr(frontend_hour_offset),
+        hour=crew_hour,
         id="dev_crew_frontend",
     )
     scheduler.add_job(
         partial(run_dev_crew_job, "backend"),
         trigger="cron",
         minute=str(backend_minute),
-        hour=_refresh_hour_expr(backend_hour_offset),
+        hour=crew_hour,
         id="dev_crew_backend",
     )
     scheduler.add_job(
         partial(run_dev_crew_job, "fullstack"),
         trigger="cron",
         minute=str(fullstack_minute),
-        hour=_refresh_hour_expr(fullstack_hour_offset),
+        hour=crew_hour,
         id="dev_crew_fullstack",
     )
     scheduler.add_job(
         run_conflict_check_job,
         trigger="cron",
         minute=str(conflict_check_minute),
-        hour=_refresh_hour_expr(conflict_hour_offset),
+        hour=crew_hour,
         id="conflict_check",
     )
     scheduler.add_job(
         run_merge_crew_job,
         trigger="cron",
         minute=str(merge_minute),
-        hour=_refresh_hour_expr(merge_hour_offset),
+        hour=crew_hour,
         id="merge_crew",
     )
     # QA disabled - automation infra to be added later
-    # Startup window: refresh first, then open agent jobs with the same offsets.
+    # Startup: RAG first; crews 100 min later (RAG ~96 min + buffer)
     now = datetime.now(timezone.utc)
+    startup_delay = 100  # Minutes until first crew (RAG takes ~96 min)
     scheduler.add_job(
         run_rag_refresh_job,
         trigger="date",
@@ -164,43 +161,43 @@ def create_scheduler() -> BackgroundScheduler:
     scheduler.add_job(
         run_product_crew_job,
         trigger="date",
-        run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes),
+        run_date=now + timedelta(minutes=startup_delay),
         id="product_crew_startup",
     )
     scheduler.add_job(
         run_team_lead_crew_job,
         trigger="date",
-        run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes + 10),
+        run_date=now + timedelta(minutes=startup_delay + 2),
         id="team_lead_crew_startup",
     )
     scheduler.add_job(
         partial(run_dev_crew_job, "frontend"),
         trigger="date",
-        run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes + 20),
+        run_date=now + timedelta(minutes=startup_delay + 4),
         id="dev_crew_frontend_startup",
     )
     scheduler.add_job(
         partial(run_dev_crew_job, "backend"),
         trigger="date",
-        run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes + 30),
+        run_date=now + timedelta(minutes=startup_delay + 6),
         id="dev_crew_backend_startup",
     )
     scheduler.add_job(
         partial(run_dev_crew_job, "fullstack"),
         trigger="date",
-        run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes + 40),
+        run_date=now + timedelta(minutes=startup_delay + 8),
         id="dev_crew_fullstack_startup",
     )
     scheduler.add_job(
         run_conflict_check_job,
         trigger="date",
-        run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes + 45),
+        run_date=now + timedelta(minutes=startup_delay + 9),
         id="conflict_check_startup",
     )
     scheduler.add_job(
         run_merge_crew_job,
         trigger="date",
-        run_date=now + timedelta(minutes=settings.rag_agent_window_delay_minutes + 50),
+        run_date=now + timedelta(minutes=startup_delay + 9),
         id="merge_crew_startup",
     )
     set_scheduler(scheduler)
@@ -214,16 +211,17 @@ def start_scheduler() -> BackgroundScheduler:
     log_rag_status()
     scheduler = create_scheduler()
     scheduler.start()
+    base = settings.rag_crew_base_minute
     logger.info(
-        "Scheduler running. Pipeline: RAG refresh(:%02d) → Product(:%02d) → Team Lead(:%02d) → "
-        "Dev frontend(:%02d) backend(:%02d) fullstack(:%02d) → Conflict check(:%02d) → Merge agent(:%02d). QA disabled.",
-        _minute_slot(0),
-        _minute_slot(settings.rag_agent_window_delay_minutes),
-        _minute_slot(settings.rag_agent_window_delay_minutes + 10),
-        _minute_slot(settings.rag_agent_window_delay_minutes + 20),
-        _minute_slot(settings.rag_agent_window_delay_minutes + 30),
-        _minute_slot(settings.rag_agent_window_delay_minutes + 40),
-        _minute_slot(settings.rag_agent_window_delay_minutes + 45),
-        _minute_slot(settings.rag_agent_window_delay_minutes + 50),
+        "Scheduler running. Pipeline: RAG refresh(:00 every %dh) → Product(:%02d) → Team Lead(:%02d) → "
+        "Dev frontend(:%02d) backend(:%02d) fullstack(:%02d) → Conflict(:%02d) → Merge(:%02d). QA disabled.",
+        settings.rag_refresh_interval_hours,
+        base,
+        base + 2,
+        base + 4,
+        base + 6,
+        base + 8,
+        base + 9,
+        base + 9,
     )
     return scheduler

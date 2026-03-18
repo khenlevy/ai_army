@@ -58,9 +58,11 @@ class Settings(BaseSettings):
     agent_identity_domain: str = "khenlevy.com"
 
     # Dedicated RAG refresh cadence. Refresh runs first; agent jobs run afterward in a later window.
-    rag_refresh_interval_hours: int = 1
+    # RAG takes ~96 min; crews run at :50-:59 to align with window (RAG finish ~:36 + 10 min delay).
+    rag_refresh_interval_hours: int = 2  # Big buffer: RAG every 2h so crews have time to run
     rag_refresh_minute: int = 0
-    rag_agent_window_delay_minutes: int = 10
+    rag_agent_window_delay_minutes: int = 10  # Window opens RAG_finish + this
+    rag_crew_base_minute: int = 50  # Crews run at :50, :52, :54, :56, :58, :59 (after RAG finishes)
     rag_build_lock_timeout_seconds: int = 30
 
 
