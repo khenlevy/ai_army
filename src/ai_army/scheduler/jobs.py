@@ -143,9 +143,15 @@ def run_product_crew_job() -> None:
         for cfg in repos:
             if not _repo_ready(cfg, job_tag=TAG, require_search=True, require_issue_ops=True):
                 continue
+            state = load_runtime_state(repo_key_for_config(cfg))
+            repo_path = state.repo_path if state else None
             try:
                 logger.info("[%s] starting | repo: %s", TAG, cfg.repo)
-                result = ProductCrew.kickoff(repo_config=cfg, crew_context=crew_context)
+                result = ProductCrew.kickoff(
+                    repo_config=cfg,
+                    crew_context=crew_context,
+                    repo_path=repo_path,
+                )
                 store.add("product", str(result))
                 elapsed = time.monotonic() - t0
                 logger.info("[%s] done | repo: %s | elapsed: %.1fs", TAG, cfg.repo, elapsed)

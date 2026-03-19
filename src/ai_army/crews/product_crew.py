@@ -2,6 +2,7 @@
 
 Creates and prioritizes GitHub issues with lifecycle labels.
 Context is aligned with project README and product_context (Product Overview, Product Goal).
+Product Agent inspects the codebase, compares implementation vs vision, and opens alignment issues.
 Enforces a cap of 8 open issues.
 """
 
@@ -14,13 +15,18 @@ from crewai import Agent, Crew, LLM, Process, Task
 
 from ai_army.config.llm_config import get_llm_model_crewai
 from ai_army.tools import (
+    CreateIssueTool,
     CreateStructuredIssueTool,
     EnrichIssueTool,
+    ListClosedIssuesTool,
     ListOpenIssuesTool,
+    RepoStructureTool,
+    SearchCodebaseTool,
     UpdateIssueTool,
     create_github_tools,
 )
 from ai_army.tools.github_tools import (
+    extract_product_sections_from_readme,
     get_open_issue_count,
     get_repo_from_config,
     get_repo_readme,
@@ -65,15 +71,30 @@ def _get_llm() -> LLM:
 def _build_product_context(
     repo_config: "GitHubRepoConfig | None",
 ) -> dict[str, Any]:
-    """Gather README, product_overview, product_goal, and open issue count."""
-    ctx = _load_product_context()
-    ctx["readme"] = ""
-    ctx["open_issue_count"] = 0
+    """Gather README, product_overview, product_goal, and open issue count.
+
+    Product overview and goal are taken from the target repo's README when it has
+    ## Product Overview and ## Product Goal sections. Otherwise falls back to
+    ai_army/config/product_context.yaml (useful when running without a target repo).
+    """
+    fallback = _load_product_context()
+    ctx: dict[str, Any] = {
+        "product_overview": fallback["product_overview"],
+        "product_goal": fallback["product_goal"],
+        "readme": "",
+        "open_issue_count": 0,
+    }
     if repo_config:
         try:
             repo = get_repo_from_config(repo_config)
-            ctx["readme"] = get_repo_readme(repo)
+            readme = get_repo_readme(repo)
+            ctx["readme"] = readme
             ctx["open_issue_count"] = get_open_issue_count(repo)
+            sections = extract_product_sections_from_readme(readme)
+            if sections["product_overview"]:
+                ctx["product_overview"] = sections["product_overview"]
+            if sections["product_goal"]:
+                ctx["product_goal"] = sections["product_goal"]
         except Exception as e:
             logger.warning("Could not fetch repo context: %s", e)
     return ctx
@@ -83,17 +104,20 @@ def create_product_crew(
     repo_config: "GitHubRepoConfig | None" = None,
     product_context: dict[str, Any] | None = None,
     crew_context: str = "",
+    repo_path: str | None = None,
 ) -> Crew:
     """Create the Product Crew with PM and Product Agent.
 
     product_context should contain: readme, product_overview, product_goal, open_issue_count.
+    When repo_path is set, Product Agent gets Search Codebase and Repo Structure to inspect
+    the codebase and open alignment issues when implementation diverges from product vision.
     """
     config = _load_agents_config()
     llm = _get_llm()
     ctx = product_context or _build_product_context(repo_config)
     logger.debug("create_product_crew: building crew (open_issues=%s)", ctx.get("open_issue_count", 0))
 
-    _, update_issue, list_issues, *_ = create_github_tools(repo_config)
+    create_issue, update_issue, list_issues, *_ = create_github_tools(repo_config)
     create_structured = CreateStructuredIssueTool(
         repo_config=repo_config,
         product_context=ctx,
@@ -115,13 +139,25 @@ def create_product_crew(
         tools=[create_structured, update_issue, list_issues],
     )
 
+    pa_tools: list = [enrich_issue, update_issue, list_issues]
+    list_closed = ListClosedIssuesTool(repo_config=repo_config)
+    pa_tools.append(list_closed)
+    if repo_path:
+        pa_tools.extend(
+            [
+                SearchCodebaseTool(repo_path=repo_path, repo_config=repo_config),
+                RepoStructureTool(repo_path=repo_path),
+                create_issue,
+            ]
+        )
+
     product_agent = Agent(
         role=pa_config["role"],
         goal=pa_config["goal"],
         backstory=pa_config["backstory"],
         llm=llm,
         verbose=True,
-        tools=[enrich_issue, update_issue, list_issues],
+        tools=pa_tools,
     )
 
     crew_context_block = (
@@ -157,9 +193,28 @@ def create_product_crew(
         agent=product_manager,
     )
 
+    alignment_audit_desc = ""
+    if repo_path and (ctx.get("product_overview") or ctx.get("product_goal")):
+        alignment_audit_desc = (
+            "FIRST: Product Alignment Audit. You have Search Codebase and Repo Structure. "
+            "Reverse-engineer the codebase: search for key flows from Product Overview (e.g. onboarding, recommendations, tracking). "
+            "Compare what exists vs what the Product Overview and Product Goal expect. "
+            "When you find gaps (missing flows, incomplete features), open issues using Create GitHub Issue with labels ['backlog','prioritized','feature']. "
+            "Prioritize the most critical gaps. Do NOT create issues if open count is already at or over cap. "
+            "Then proceed to enrichment.\n\n"
+        )
+
+    ticket_alignment_rule = (
+        "TICKET ALIGNMENT: Ensure tickets align with what needs to be done. Use List Closed GitHub Issues and List Open GitHub Issues. "
+        "If all issues are closed/done but Product Overview and Product Goal indicate the product is incomplete, that is WRONG—open new issues. "
+        "We should always move forward: never have a state where everything appears done but the product vision is not fulfilled.\n\n"
+    )
+
     product_agent_task = Task(
         description=(
-            "Your work must align with the Product Overview and Product Goal below."
+            alignment_audit_desc
+            + ticket_alignment_rule
+            + "Your work must align with the Product Overview and Product Goal below."
             + overview_block
             + goal_block
             + "\n\nFor each issue with the 'prioritized' label that does NOT yet have 'ready-for-breakdown', enrich it. "
@@ -167,7 +222,7 @@ def create_product_crew(
             "(do not re-enrich; that creates duplicate comments). Use Enrich GitHub Issue only for prioritized issues "
             "missing ready-for-breakdown. Ensure each enriched issue is clear enough for the Team Lead to break down."
         ),
-        expected_output="Summary of issues enriched and marked ready-for-breakdown.",
+        expected_output="Summary of alignment/ticket-validation issues opened (if any), and issues enriched and marked ready-for-breakdown.",
         agent=product_agent,
         context=[pm_task],
     )
@@ -181,7 +236,7 @@ def create_product_crew(
 
 
 class ProductCrew:
-    """Product Crew - runs PM and Product Agent to manage backlog."""
+    """Product Crew - runs PM and Product Agent to manage backlog and alignment audit."""
 
     @classmethod
     def kickoff(
@@ -189,8 +244,12 @@ class ProductCrew:
         inputs: dict | None = None,
         repo_config: "GitHubRepoConfig | None" = None,
         crew_context: str = "",
+        repo_path: str | None = None,
     ) -> str:
-        """Run the Product Crew. Logs when open issue count reaches cap."""
+        """Run the Product Crew. Logs when open issue count reaches cap.
+
+        When repo_path is set, Product Agent inspects the codebase and opens alignment issues.
+        """
         product_context = _build_product_context(repo_config)
         if product_context.get("open_issue_count", 0) >= OPEN_ISSUE_CAP:
             logger.warning(
@@ -206,5 +265,6 @@ class ProductCrew:
             repo_config=repo_config,
             product_context=product_context,
             crew_context=crew_context,
+            repo_path=repo_path,
         )
         return crew.kickoff(inputs=inputs or {})

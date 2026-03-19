@@ -19,9 +19,15 @@ def run_product_crew():
     from ai_army.config import get_github_repos
     from ai_army.crews.product_crew import ProductCrew
     from ai_army.memory.context_store import get_context_store
+    from ai_army.rag.runtime_state import load_runtime_state, repo_key_for_config
     from ai_army.tools.github_tools import check_github_connection_and_log
 
     repos = get_github_repos()
+    repo_config = repos[0] if repos else None
+    repo_path = None
+    if repo_config:
+        state = load_runtime_state(repo_key_for_config(repo_config))
+        repo_path = state.repo_path if state else None
     if not repos:
         logger.warning("Product Crew: no GitHub repos configured")
     else:
@@ -33,7 +39,11 @@ def run_product_crew():
     if crew_context:
         logger.info("Product Crew: using context from previous crews (%d chars)", len(crew_context))
     logger.info("Starting Product Crew (PM + Product Agent)")
-    result = ProductCrew.kickoff(crew_context=crew_context)
+    result = ProductCrew.kickoff(
+        repo_config=repo_config,
+        crew_context=crew_context,
+        repo_path=repo_path,
+    )
     store.add("product", str(result))
     logger.info("Product Crew finished (result len=%d)", len(str(result)))
     return result

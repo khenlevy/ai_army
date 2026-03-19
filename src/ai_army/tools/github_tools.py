@@ -10,6 +10,7 @@ from ai_army.tools.github_helpers import (
     check_github_connection_and_log,
     count_issues_for_dev,
     count_issues_ready_for_breakdown,
+    extract_product_sections_from_readme,
     get_open_issue_count,
     get_repo_from_config,
     get_repo_readme,
@@ -19,6 +20,7 @@ from ai_army.tools.github_issue_tools import (
     CreateIssueTool,
     CreateStructuredIssueTool,
     EnrichIssueTool,
+    ListClosedIssuesTool,
     ListOpenIssuesTool,
     UpdateIssueTool,
 )
@@ -57,6 +59,7 @@ __all__ = [
     "EnrichIssueTool",
     "UpdateIssueTool",
     "ListOpenIssuesTool",
+    "ListClosedIssuesTool",
     "CreatePullRequestTool",
     "GetPullRequestDetailsTool",
     "ListPullRequestsTool",

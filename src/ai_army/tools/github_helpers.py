@@ -125,6 +125,28 @@ def get_repo_readme(repo) -> str:
         return ""
 
 
+def extract_product_sections_from_readme(readme: str) -> dict[str, str]:
+    """Extract Product Overview and Product Goal from README markdown sections.
+
+    Looks for ## Product Overview and ## Product Goal headings.
+    Returns dict with product_overview and product_goal (empty if not found).
+    """
+    result: dict[str, str] = {"product_overview": "", "product_goal": ""}
+    if not readme or not readme.strip():
+        return result
+
+    def _extract_section(text: str, heading: str) -> str:
+        pattern = rf"(?:^|\n)\s*#+\s*{re.escape(heading)}\s*\n(.*?)(?=\n\s*#+\s|\Z)"
+        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        return ""
+
+    result["product_overview"] = _extract_section(readme, "Product Overview")
+    result["product_goal"] = _extract_section(readme, "Product Goal")
+    return result
+
+
 def count_issues_ready_for_breakdown(repo_config: GitHubRepoConfig | None = None) -> int:
     """Count open issues with ready-for-breakdown that do NOT have broken-down. GitHub API only."""
     try:

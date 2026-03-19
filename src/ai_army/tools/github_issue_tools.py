@@ -508,3 +508,47 @@ class ListOpenIssuesTool(BaseTool):
         except Exception as e:
             logger.exception("ListOpenIssuesTool failed: %s", e)
             return f"Error listing issues: {e}"
+
+
+class ListClosedIssuesInput(BaseModel):
+    """Input schema for ListClosedIssuesTool."""
+
+    labels: list[str] = Field(
+        default_factory=list,
+        description="Filter by labels (e.g. done). Empty = all closed issues.",
+    )
+    limit: int = Field(default=30, ge=1, le=100, description="Max number of issues to return")
+
+
+class ListClosedIssuesTool(BaseTool):
+    """Fetch closed issues to validate ticket alignment with product vision."""
+
+    name: str = "List Closed GitHub Issues"
+    description: str = (
+        "List closed GitHub issues. Use to validate that 'done' tickets align with product vision. "
+        "If all issues are closed but Product Overview/Goal indicate gaps, that is wrong—open new issues."
+    )
+    args_schema: Type[BaseModel] = ListClosedIssuesInput
+
+    def __init__(self, repo_config: GitHubRepoConfig | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._repo_config = repo_config
+
+    def _run(self, labels: list[str] | None = None, limit: int = 30) -> str:
+        try:
+            labels = labels or []
+            repo = _get_repo_from_config(self._repo_config)
+            raw = repo.get_issues(state="closed", labels=labels) if labels else repo.get_issues(state="closed")
+            issues = list(raw)[:limit]
+            result = []
+            for i in issues:
+                if i.pull_request:
+                    continue
+                label_names = [l.name for l in (i.labels or [])]
+                result.append(f"#{i.number}: {i.title} | labels: {label_names}")
+            count = len(result)
+            logger.info("ListClosedIssuesTool: found %d closed issues (labels=%s)", count, labels or "all")
+            return "\n".join(result) if result else "No matching closed issues found"
+        except Exception as e:
+            logger.exception("ListClosedIssuesTool failed: %s", e)
+            return f"Error listing closed issues: {e}"

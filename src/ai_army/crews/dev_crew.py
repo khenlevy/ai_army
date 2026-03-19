@@ -16,6 +16,11 @@ from ai_army.config.settings import get_github_repos
 from ai_army.config.settings import GitHubRepoConfig
 from ai_army.repo_clone import ensure_repo_cloned
 from ai_army.dev_context import build_branch_context
+from ai_army.tools.github_tools import (
+    extract_product_sections_from_readme,
+    get_repo_from_config,
+    get_repo_readme,
+)
 from ai_army.tools import (
     CheckoutBranchTool,
     CreateLocalBranchTool,
@@ -153,12 +158,32 @@ def create_dev_crew(
         include_conflict_tools=True,
     )
 
+    product_vision_block = ""
+    if repo_config:
+        try:
+            repo = get_repo_from_config(repo_config)
+            readme = get_repo_readme(repo)
+            sections = extract_product_sections_from_readme(readme)
+            if sections.get("product_overview") or sections.get("product_goal"):
+                parts = []
+                if sections.get("product_overview"):
+                    parts.append(f"Product Overview:\n{sections['product_overview']}")
+                if sections.get("product_goal"):
+                    parts.append(f"Product Goal:\n{sections['product_goal']}")
+                product_vision_block = (
+                    "\n--- Product Vision (align your work; you have full context) ---\n"
+                    + "\n\n".join(parts)
+                    + "\n---\n\n"
+                )
+        except Exception as e:
+            logger.debug("Dev crew: could not fetch product vision: %s", e)
+
     branch_context = (
         build_branch_context(repo_config, clone_path, agent_type)
         if repo_config and clone_path
         else ""
     )
-    crew_context_block = ""
+    crew_context_block = product_vision_block
     if branch_context:
         crew_context_block += branch_context + "\n"
     if workspace_context.strip():
