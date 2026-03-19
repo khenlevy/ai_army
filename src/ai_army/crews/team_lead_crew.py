@@ -7,6 +7,7 @@ import yaml
 from crewai import Agent, Crew, Process, Task
 from crewai import LLM
 
+from ai_army.config.llm_config import get_llm_model_crewai
 from ai_army.tools import (
     BreakdownAndCreateSubIssuesTool,
     ListOpenIssuesTool,
