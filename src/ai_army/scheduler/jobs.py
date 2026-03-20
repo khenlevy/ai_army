@@ -406,7 +406,6 @@ def run_merge_crew_job() -> None:
         job_tag=TAG,
         require_code_ops=True,
         require_pr_ops=True,
-        require_review_ops=True,
     ):
         _log_next_run(TAG)
         return

@@ -3,7 +3,7 @@
 Schedule aligned with RAG build time (~96 min). RAG runs at :00; crews run at :50-:59
 after RAG finishes (~:36) and agent window opens (~:46). Big buffers for reliability.
 - Product (:50), Team Lead (:52), Dev frontend (:54) backend (:56) fullstack (:58)
-- Conflict check (:59), Merge agent (:59)
+- Conflict check (:59), Merge agent (:02 next hour, after Dev releases workspace)
 - QA disabled (automation infra to be added later)
 """
 
@@ -86,7 +86,8 @@ def create_scheduler() -> BackgroundScheduler:
     backend_minute = base + 6
     fullstack_minute = base + 8
     conflict_check_minute = base + 9
-    merge_minute = base + 9
+    # Merge runs at :02 next hour so Dev crews (:58) have released workspace lock
+    merge_minute = 2
 
     refresh_minute = _minute_slot(0)
     refresh_hour_offset, _ = _hour_minute_slot(0)
@@ -222,6 +223,6 @@ def start_scheduler() -> BackgroundScheduler:
         base + 6,
         base + 8,
         base + 9,
-        base + 9,
+        2,
     )
     return scheduler

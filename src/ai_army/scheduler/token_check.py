@@ -65,8 +65,11 @@ def has_available_tokens() -> bool:
         return True
     except Exception as e:
         err_name = type(e).__name__
-        if "429" in str(e) or "rate_limit" in err_name.lower():
-            logger.warning("Tokens/rate limit reached - skipping this run")
+        err_str = str(e)
+        if "429" in err_str or "rate_limit" in err_name.lower():
+            logger.warning("Tokens/rate limit reached - skipping this run: %s", e)
+        elif "credit" in err_str.lower() or "balance" in err_str.lower():
+            logger.warning("API credits/quota exhausted - skipping run: %s", e)
         else:
             logger.warning("API check failed - skipping run: %s", e)
         _cached_tokens_available = False
@@ -79,4 +82,4 @@ def run_if_tokens_available(fn: Callable[[], None]) -> None:
     if has_available_tokens():
         fn()
     else:
-        logger.info("Skipping job - tokens/rate limit reached, will retry next schedule")
+        logger.info("Skipping job - API unavailable (rate limit/credits/auth), will retry next schedule")
